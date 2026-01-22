@@ -69,7 +69,7 @@ class ProfileChart:
             hovermode="closest",
             showlegend=False,
             height=450,
-            width=1000, 
+            width=1050, 
             autosize=False 
         )
 
@@ -343,6 +343,7 @@ class ProfileChart:
 
         # --- 6. Road Anchors (Reverted to Standard Small Tree) ---
         ra_label = "Ankerbaum" if ra_count == 1 else "Ankerbäume"
+        dotted_color = "#7a9c74"
         
         for i in range(ra_count):
             ax = yx - 8 - (i*6)
@@ -366,7 +367,7 @@ class ProfileChart:
             
             self.fig.add_trace(go.Scatter(
                 x=[ax, yx], y=[ay+4, yy+(yh*0.8)], 
-                mode="lines", line=dict(color="grey", width=1, dash="dot"),
+                mode="lines", line=dict(color=dotted_color, width=1, dash="dot"),
                 hoverinfo="skip"
             ))
 
@@ -395,7 +396,7 @@ class ProfileChart:
             
             self.fig.add_trace(go.Scatter(
                 x=[tx_end, ax], y=[ty_end+(th*0.6), ay+4], 
-                mode="lines", line=dict(color="grey", width=1, dash="dot"),
+                mode="lines", line=dict(color=dotted_color, width=1, dash="dot"),
                 hoverinfo="skip"
             ))
 

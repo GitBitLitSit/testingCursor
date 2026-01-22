@@ -148,7 +148,7 @@ class Table:
         self._scroll = w.Box(
             [self.grid],
             layout=w.Layout(
-                overflow_x="scroll",
+                overflow_x="auto",
                 overflow_y="hidden",
                 width="100%",
                 max_width="100%",

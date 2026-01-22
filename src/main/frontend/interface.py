@@ -76,14 +76,14 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
     selected_table = Table(
         _NAMES["table_selected_headers"], 
         [], 
-        1000, 
+        1050, 
         is_visible=False, 
         title="Aktivierte Seiltrassen",
         action_label="Auswählen", 
         on_action=lambda idx: corridor_selector.set_value(idx if idx != -1 else None)
     )
     
-    anchor_table = Table(_NAMES["table_anchor_headers"], [], 472, is_visible=False, title="Endmast Informationen")
+    anchor_table = Table(_NAMES["table_anchor_headers"], [], 422, is_visible=False, title="Endmast Informationen")
 
     # --- Logic ---
 

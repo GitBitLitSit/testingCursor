@@ -93,7 +93,7 @@ class Map:
         self._scroll_wrapper = w.Box(
             [self.fig_card],
             layout=w.Layout(
-                overflow_x="scroll",
+                overflow_x="auto",
                 overflow_y="hidden",
                 width="100%",
                 max_width="100%",
