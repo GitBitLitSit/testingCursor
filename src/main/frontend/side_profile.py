@@ -26,11 +26,12 @@ class ProfileChart:
             button_style="",
             layout=w.Layout(width="auto")
         )
+        self._relaxed_toggle.add_class("profile-btn")
         self._relaxed_toggle.observe(self._on_relaxed_toggle, names="value")
 
         self._controls = w.HBox(
             [self._relaxed_toggle],
-            layout=w.Layout(width="100%", justify_content="flex-start", gap="8px")
+            layout=w.Layout(width="100%", justify_content="flex-start", gap="8px", margin="0 0 4px 0")
         )
 
         # 2. Inner wrapper
@@ -48,7 +49,48 @@ class ProfileChart:
         self.chart_wrapper.add_class("border-radius")
 
         # CSS helper
-        self._css = w.HTML("<style>.border-radius { border-radius: 12px; }</style>")
+        self._css = w.HTML(
+            """
+            <style>
+              .border-radius { border-radius: 12px; }
+              .profile-scope .profile-btn {
+                border-radius: 14px !important;
+                border: 2px solid #94b48a !important;
+                background-color: rgb(241, 248, 241) !important;
+                color: #0f2010 !important;
+                font-weight: 600 !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                min-height: 34px !important;
+                padding: 0 12px !important;
+                line-height: 1 !important;
+                cursor: pointer !important;
+                transition: transform .06s ease, box-shadow .06s ease, border-color .06s ease, background-color .06s ease;
+                user-select: none !important;
+              }
+              .profile-scope .profile-btn:hover {
+                border-color: #48723b !important;
+                transform: translateY(-1px) !important;
+              }
+              .profile-scope .profile-btn:focus-visible {
+                outline: 2px solid #6aa86a !important;
+                outline-offset: 2px !important;
+              }
+              .profile-scope .profile-btn--active {
+                background: #2f6f3e !important;
+                color: #ffffff !important;
+                border-color: #225c2f !important;
+                box-shadow: 0 0 0 3px rgba(47,111,62,.22);
+              }
+              .profile-scope .profile-btn:disabled {
+                opacity: 0.45;
+                cursor: not-allowed !important;
+                transform: none !important;
+              }
+            </style>
+            """
+        )
 
         # 3. Scroll wrapper
         self.scroll_container = w.Box(
@@ -73,6 +115,7 @@ class ProfileChart:
                 gap="10px"
             )
         )
+        self.container.add_class("profile-scope")
 
     def _setup_layout(self):
         self.fig.update_layout(
@@ -91,6 +134,7 @@ class ProfileChart:
     def _on_relaxed_toggle(self, change):
         if self._suppress_toggle_event:
             return
+        self._sync_toggle_style()
         if self._last_data:
             self._render(self._last_data)
 
@@ -99,7 +143,17 @@ class ProfileChart:
         self._relaxed_toggle.disabled = not enabled
         if not enabled:
             self._relaxed_toggle.value = False
+        self._sync_toggle_style()
         self._suppress_toggle_event = False
+
+    def _sync_toggle_style(self) -> None:
+        try:
+            if self._relaxed_toggle.value:
+                self._relaxed_toggle.add_class("profile-btn--active")
+            else:
+                self._relaxed_toggle.remove_class("profile-btn--active")
+        except Exception:
+            pass
 
     def update(self, data: Dict[str, Any]):
         """
@@ -132,20 +186,30 @@ class ProfileChart:
         # Volume and gradient removed from hover as requested
 
         # --- 1. Terrain Construction ---
+        yx, yy = data["yarder"]["x"], data["yarder"]["y"]
+        tx_end, ty_end = data["tail_tree"]["x"], data["tail_tree"]["y"]
+        road_anchors = data.get("road_anchors", [])
+        tail_anchors = data.get("tail_anchors", [])
+        ra_count = data.get("road_anchor_count", len(road_anchors))
+        ta_count = data.get("tail_anchor_count", len(tail_anchors))
         tx = np.array(data["terrain_x"])
         ty = np.array(data["terrain_y"])
         
         base_left = float(tx[0])
         base_right = float(tx[-1])
+        left_anchor_x = yx - 8 - max(0, ra_count - 1) * 6 if ra_count else base_left
+        right_anchor_x = tx_end + 8 + max(0, ta_count - 1) * 6 if ta_count else base_right
+        left_edge = min(base_left, left_anchor_x)
+        right_edge = max(base_right, right_anchor_x)
         span = max(1.0, base_right - base_left)
         pad = max(5.0, min(15.0, span * 0.03))
 
         slope_start = (ty[1] - ty[0]) / (tx[1] - tx[0]) if len(tx) > 1 else 0
-        ext_x_left = np.array([base_left - pad, base_left - pad * 0.5])
+        ext_x_left = np.array([left_edge - pad, left_edge - pad * 0.5])
         ext_y_left = ty[0] + slope_start * (ext_x_left - base_left) + 2.0
 
         slope_end = (ty[-1] - ty[-2]) / (tx[-1] - tx[-2]) if len(tx) > 1 else 0
-        ext_x_right = np.array([base_right + pad * 0.5, base_right + pad])
+        ext_x_right = np.array([right_edge + pad * 0.5, right_edge + pad])
         ext_y_right = ty[-1] + slope_end * (ext_x_right - base_right) - 2.0
 
         full_tx = np.concatenate([ext_x_left, tx, ext_x_right])
@@ -174,7 +238,7 @@ class ProfileChart:
             line=dict(color='#5c4033', width=2),
             name='Gelände Linie', hoverinfo='x+y'
         ))
-        self.fig.update_xaxes(range=[base_left - pad, base_right + pad])
+        self.fig.update_xaxes(range=[left_edge - pad, right_edge + pad])
 
         # --- Helper: Draw Tree with Hover (Updated Visuals) ---
         def add_tree_shape(x, y_ground, visual_trunk_height, real_height_for_hover, 
@@ -272,12 +336,10 @@ class ProfileChart:
             ))
 
         # --- 2. Yarder ---
-        yx, yy = data["yarder"]["x"], data["yarder"]["y"]
         yh = data["yarder"]["height"]
         add_yarder_shape(yx, yy, yh)
 
         # --- 3. Tail Tree (Endmast) ---
-        tx_end, ty_end = data["tail_tree"]["x"], data["tail_tree"]["y"]
         th = data["tail_tree"]["height"]
         tail_attach_h = data["tail_tree"].get("attachment_height", th)
         
@@ -336,7 +398,7 @@ class ProfileChart:
             x=cable_x,
             y=cable_loaded_y,
             mode="lines",
-            line=dict(color="black", width=1.5),
+            line=dict(color="black", width=1.5, shape="spline", smoothing=0.4),
             name="Tragseil (belastet)" if show_relaxed else "Tragseil",
             customdata=custom_data_skyline,
             hovertemplate=(
@@ -351,7 +413,7 @@ class ProfileChart:
                 x=cable_x,
                 y=cable_unloaded_y,
                 mode="lines",
-                line=dict(color="#1f77b4", width=1.2, dash="dash"),
+                line=dict(color="#1f77b4", width=1.2, dash="dash", shape="spline", smoothing=0.4),
                 name="Tragseil (entspannt)",
                 customdata=custom_data_skyline,
                 hovertemplate=(
@@ -364,8 +426,6 @@ class ProfileChart:
         self.fig.update_layout(showlegend=show_relaxed)
 
         # --- 6. Road Anchors (Reverted to Standard Small Tree) ---
-        road_anchors = data.get("road_anchors", [])
-        ra_count = data.get("road_anchor_count", len(road_anchors))
         ra_label = "Ankerbaum" if ra_count == 1 else "Ankerbäume"
         
         for i in range(ra_count):
@@ -395,8 +455,6 @@ class ProfileChart:
             ))
 
         # --- 7. Tail Anchors (Reverted to Standard Small Tree) ---
-        tail_anchors = data.get("tail_anchors", [])
-        ta_count = data.get("tail_anchor_count", len(tail_anchors))
         ta_label = "Ankerbaum" if ta_count == 1 else "Ankerbäume"
 
         for i in range(ta_count):
