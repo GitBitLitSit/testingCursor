@@ -10,11 +10,27 @@ class ProfileChart:
     def __init__(self):
         self.fig = go.FigureWidget()
         self._setup_layout()
+        self._last_data: Optional[Dict[str, Any]] = None
+        self._suppress_toggle_event = False
         
         # 1. Title Widget (Outside the figure)
         self._title_html = w.HTML(
             value="<div style='font-weight:800; font-size:18px; margin-bottom:6px;'>Seiltrassen Profilansicht</div>",
             layout=w.Layout(width="100%")
+        )
+
+        self._relaxed_toggle = w.ToggleButton(
+            value=False,
+            description="Entspanntes Seil anzeigen",
+            tooltip="Zeigt den Seilverlauf ohne Last (nur Eigengewicht).",
+            button_style="",
+            layout=w.Layout(width="auto")
+        )
+        self._relaxed_toggle.observe(self._on_relaxed_toggle, names="value")
+
+        self._controls = w.HBox(
+            [self._relaxed_toggle],
+            layout=w.Layout(width="100%", justify_content="flex-start", gap="8px")
         )
 
         # 2. Inner wrapper
@@ -48,7 +64,7 @@ class ProfileChart:
         
         # 4. Main Container
         self.container = w.VBox(
-            [self._css, self._title_html, self.scroll_container], 
+            [self._css, self._title_html, self._controls, self.scroll_container], 
             layout=w.Layout(
                 width="100%", 
                 height="auto",
@@ -72,10 +88,27 @@ class ProfileChart:
             autosize=False 
         )
 
+    def _on_relaxed_toggle(self, change):
+        if self._suppress_toggle_event:
+            return
+        if self._last_data:
+            self._render(self._last_data)
+
+    def _set_relaxed_toggle(self, enabled: bool) -> None:
+        self._suppress_toggle_event = True
+        self._relaxed_toggle.disabled = not enabled
+        if not enabled:
+            self._relaxed_toggle.value = False
+        self._suppress_toggle_event = False
+
     def update(self, data: Dict[str, Any]):
         """
         Expects data dict from get_side_profile_data()
         """
+        self._last_data = data or {}
+        self._render(self._last_data)
+
+    def _render(self, data: Dict[str, Any]) -> None:
         self.fig.data = [] 
         self.fig.layout.shapes = []
         self.fig.layout.annotations = [] 
@@ -88,6 +121,11 @@ class ProfileChart:
         c_id = data.get('display_id', data.get('corridor_id', '?'))
         self._title_html.value = f"<div style='font-weight:800; font-size:18px;'>Seiltrasse {c_id}</div>"
 
+        cable_profile = data.get("cable_profile") or {}
+        has_cable_profile = bool(cable_profile.get("x"))
+        self._set_relaxed_toggle(has_cable_profile)
+        show_relaxed = has_cable_profile and self._relaxed_toggle.value
+
         # Extracted Stats
         c_len = data.get("length_m", 0.0)
         c_cost = data.get("cost", 0.0)
@@ -97,13 +135,18 @@ class ProfileChart:
         tx = np.array(data["terrain_x"])
         ty = np.array(data["terrain_y"])
         
+        base_left = float(tx[0])
+        base_right = float(tx[-1])
+        span = max(1.0, base_right - base_left)
+        pad = max(5.0, min(15.0, span * 0.03))
+
         slope_start = (ty[1] - ty[0]) / (tx[1] - tx[0]) if len(tx) > 1 else 0
-        ext_x_left = np.array([-50.0, -25.0])
-        ext_y_left = ty[0] + slope_start * (ext_x_left - tx[0]) + 2.0
+        ext_x_left = np.array([base_left - pad, base_left - pad * 0.5])
+        ext_y_left = ty[0] + slope_start * (ext_x_left - base_left) + 2.0
 
         slope_end = (ty[-1] - ty[-2]) / (tx[-1] - tx[-2]) if len(tx) > 1 else 0
-        ext_x_right = np.array([tx[-1] + 25.0, tx[-1] + 50.0])
-        ext_y_right = ty[-1] + slope_end * (ext_x_right - tx[-1]) - 2.0
+        ext_x_right = np.array([base_right + pad * 0.5, base_right + pad])
+        ext_y_right = ty[-1] + slope_end * (ext_x_right - base_right) - 2.0
 
         full_tx = np.concatenate([ext_x_left, tx, ext_x_right])
         full_ty = np.concatenate([ext_y_left, ty, ext_y_right])
@@ -131,11 +174,13 @@ class ProfileChart:
             line=dict(color='#5c4033', width=2),
             name='Gelände Linie', hoverinfo='x+y'
         ))
+        self.fig.update_xaxes(range=[base_left - pad, base_right + pad])
 
         # --- Helper: Draw Tree with Hover (Updated Visuals) ---
         def add_tree_shape(x, y_ground, visual_trunk_height, real_height_for_hover, 
                            color="green", label="", bhd=None,
-                           crown_h=10.0, crown_w=6.0, show_height_tooltip=True):
+                           crown_h=10.0, crown_w=6.0, show_height_tooltip=True,
+                           height_label="Tragseilhöhe"):
             """
             Draws a tree with a crown sitting on top of a trunk.
             """
@@ -188,7 +233,7 @@ class ProfileChart:
                 f"BHD: %{{customdata[0]}}<br>"
             )
             if show_height_tooltip:
-                hover_template += "Höhe: %{customdata[1]:.1f} m<extra></extra>"
+                hover_template += f"{height_label}: %{{customdata[1]:.1f}} m<extra></extra>"
             else:
                 hover_template += "<extra></extra>"
 
@@ -233,17 +278,18 @@ class ProfileChart:
 
         # --- 3. Tail Tree (Endmast) ---
         tx_end, ty_end = data["tail_tree"]["x"], data["tail_tree"]["y"]
-        th = data["tail_tree"]["height"] 
+        th = data["tail_tree"]["height"]
+        tail_attach_h = data["tail_tree"].get("attachment_height", th)
         
         dt = data["tail_tree"]
         tbhd = dt.get("BHD") or dt.get("bhd")
         
-        # Endmast: Big crown (10m high), trunk capped at 15m to avoid giant trees
-        visual_trunk_h_end = min(th * 0.6, 15.0)
+        # Endmast: trunk = Tragseilhöhe + 1m, crown on top
+        visual_trunk_h_end = tail_attach_h + 1.0
         
         add_tree_shape(tx_end, ty_end, 
                        visual_trunk_height=visual_trunk_h_end, 
-                       real_height_for_hover=th, 
+                       real_height_for_hover=tail_attach_h, 
                        label="Endmast", 
                        bhd=tbhd,
                        crown_h=10.0, crown_w=6.0,
@@ -255,12 +301,12 @@ class ProfileChart:
         
         for i, sup in enumerate(data["supports"]):
             sx, sy = sup["x"], sup["y_ground"]
-            sh = sup["height"]
+            sh = sup.get("attachment_height", sup["height"])
             sbhd = sup.get("BHD") or sup.get("bhd")
             
-            # Supports: Big crown, trunk ends at attachment height
+            # Supports: trunk = Tragseilhöhe + 1m, crown on top
             add_tree_shape(sx, sy, 
-                           visual_trunk_height=sh, 
+                           visual_trunk_height=sh + 1.0, 
                            real_height_for_hover=sh, 
                            color="#228B22", 
                            label=f"Stütze {i+1}", 
@@ -273,28 +319,49 @@ class ProfileChart:
 
         # Connect to Endmast at Trunk Top
         cable_points_x.append(tx_end)
-        cable_points_y.append(ty_end + visual_trunk_h_end)
+        cable_points_y.append(ty_end + tail_attach_h)
 
         # --- 5. Skyline (Clean Hover) ---
-        custom_data_skyline = [
-            [c_id, c_len, c_cost] 
-            for _ in cable_points_x
-        ]
+        cable_x = cable_points_x
+        cable_loaded_y = cable_points_y
+        cable_unloaded_y = None
+        if has_cable_profile:
+            cable_x = cable_profile["x"]
+            cable_loaded_y = cable_profile["loaded_y"]
+            cable_unloaded_y = cable_profile["unloaded_y"]
+
+        custom_data_skyline = [[c_id, c_len, c_cost] for _ in cable_x]
 
         self.fig.add_trace(go.Scatter(
-            x=cable_points_x,
-            y=cable_points_y,
+            x=cable_x,
+            y=cable_loaded_y,
             mode="lines",
             line=dict(color="black", width=1.5),
-            name="Tragseil",
+            name="Tragseil (belastet)" if show_relaxed else "Tragseil",
             customdata=custom_data_skyline,
             hovertemplate=(
                 "<b>Seiltrasse %{customdata[0]}</b><br>"
                 "Länge: %{customdata[1]:.1f} m<br>"
                 "Kosten: %{customdata[2]:.0f} €<extra></extra>"
             ),
-            showlegend=False
+            showlegend=show_relaxed
         ))
+        if show_relaxed and cable_unloaded_y is not None:
+            self.fig.add_trace(go.Scatter(
+                x=cable_x,
+                y=cable_unloaded_y,
+                mode="lines",
+                line=dict(color="#1f77b4", width=1.2, dash="dash"),
+                name="Tragseil (entspannt)",
+                customdata=custom_data_skyline,
+                hovertemplate=(
+                    "<b>Seiltrasse %{customdata[0]}</b><br>"
+                    "Länge: %{customdata[1]:.1f} m<br>"
+                    "Kosten: %{customdata[2]:.0f} €<extra></extra>"
+                ),
+                showlegend=True
+            ))
+        self.fig.update_layout(showlegend=show_relaxed)
 
         # --- 6. Road Anchors (Reverted to Standard Small Tree) ---
         road_anchors = data.get("road_anchors", [])

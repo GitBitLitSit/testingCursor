@@ -872,6 +872,82 @@ def make_radar_scores(results_df: pd.DataFrame, axes: List[str]) -> pd.DataFrame
     dummy = VizData(forest_area_3=None, model_list=None, results_df=results_df)
     return dummy.make_radar_scores(axes)
 
+def _build_cable_profile(cr_object, line_geom) -> Dict[str, List[float]]:
+    """Build loaded/unloaded cable profiles along the corridor distance."""
+    if cr_object is None or line_geom is None:
+        return {}
+
+    def _collect_profile(cable) -> List[tuple[float, float, float]]:
+        points = getattr(cable, "points_along_line", None)
+        if not points:
+            return []
+        try:
+            loaded = np.asarray(cable.absolute_loaded_line_height, dtype=float)
+            unloaded = np.asarray(cable.absolute_unloaded_line_height, dtype=float)
+        except Exception:
+            return []
+        if len(points) != len(loaded) or len(points) != len(unloaded):
+            return []
+        entries: List[tuple[float, float, float]] = []
+        for p, lz, uz in zip(points, loaded, unloaded):
+            try:
+                px, py = float(p.x), float(p.y)
+            except Exception:
+                try:
+                    px, py = float(p[0]), float(p[1])
+                except Exception:
+                    continue
+            dist = float(line_geom.project(Point(px, py)))
+            entries.append((dist, float(lz), float(uz)))
+        return entries
+
+    cables = []
+    segments = getattr(cr_object, "supported_segments", None)
+    if segments:
+        if hasattr(cr_object, "get_all_subsegments"):
+            segments_list = list(cr_object.get_all_subsegments())
+        else:
+            segments_list = list(segments)
+        for segment in segments_list:
+            cable = getattr(segment, "cable_road", None)
+            if cable is not None:
+                cables.append(cable)
+    if not cables:
+        cables = [cr_object]
+
+    def _start_distance(cable) -> float:
+        start_support = getattr(cable, "start_support", None)
+        start_point = getattr(start_support, "xy_location", None)
+        if start_point is None:
+            return 0.0
+        try:
+            return float(line_geom.project(start_point))
+        except Exception:
+            return 0.0
+
+    cables = sorted(cables, key=_start_distance)
+
+    entries: List[tuple[float, float, float]] = []
+    for cable in cables:
+        entries.extend(_collect_profile(cable))
+    if not entries:
+        return {}
+
+    entries.sort(key=lambda x: x[0])
+    deduped: List[tuple[float, float, float]] = []
+    tol = 1e-3
+    for dist, lz, uz in entries:
+        if not deduped or abs(dist - deduped[-1][0]) > tol:
+            deduped.append((dist, lz, uz))
+        else:
+            deduped[-1] = (dist, lz, uz)
+
+    return {
+        "x": [d for d, _, _ in deduped],
+        "loaded_y": [lz for _, lz, _ in deduped],
+        "unloaded_y": [uz for _, _, uz in deduped],
+    }
+
 def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
     line_gdf = forest_area_3.line_gdf
     if corridor_real_index not in line_gdf.index:
@@ -951,13 +1027,29 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
                 "x": dist, 
                 "y_ground": z_ground,
                 "height": h_attach,
+                "attachment_height": h_attach,
                 "type": "Support",
                 "BHD": sup_bhd
             })
     end_tree_obj = getattr(row, "end_support_tree", getattr(row, "end_anchor_tree", None))
     _, _, tail_bhd, tail_h = _extract_tree_metadata(end_tree_obj)
-    if tail_h is None: tail_h = 10
-    tail_tree_data = {"x": total_length, "y": end_z, "height": tail_h}
+    if tail_h is None:
+        tail_h = 10
+    tail_attach_h = None
+    if cr_object is not None:
+        end_support = getattr(cr_object, "end_support", None)
+        if end_support is not None:
+            try:
+                tail_attach_h = float(end_support.attachment_height)
+            except Exception:
+                tail_attach_h = None
+    if tail_attach_h is None:
+        tail_attach_h = tail_h
+    tail_tree_data = {
+        "x": total_length,
+        "y": end_z,
+        "height": tail_attach_h,
+    }
     if tail_bhd is not None:
         tail_tree_data["BHD"] = tail_bhd
     road_anchors_list = []
@@ -989,6 +1081,7 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
         final_terrain_y.append(s["y_ground"])
     sorted_pairs = sorted(zip(final_terrain_x, final_terrain_y))
     tx, ty = zip(*sorted_pairs)
+    cable_profile = _build_cable_profile(cr_object, line_geom)
     return {
         "terrain_x": tx,
         "terrain_y": ty,
@@ -1003,5 +1096,6 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
         "length_m": total_length,
         "volume_m3": vol,
         "cost": cost,
-        "gradient": gradient_pct
+        "gradient": gradient_pct,
+        "cable_profile": cable_profile,
     }
