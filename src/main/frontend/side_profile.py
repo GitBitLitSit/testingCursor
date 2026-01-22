@@ -11,27 +11,11 @@ class ProfileChart:
         self.fig = go.FigureWidget()
         self._setup_layout()
         self._last_data: Optional[Dict[str, Any]] = None
-        self._suppress_toggle_event = False
         
         # 1. Title Widget (Outside the figure)
         self._title_html = w.HTML(
             value="<div style='font-weight:800; font-size:18px; margin-bottom:6px;'>Seiltrassen Profilansicht</div>",
             layout=w.Layout(width="100%")
-        )
-
-        self._relaxed_toggle = w.ToggleButton(
-            value=False,
-            description="Entspanntes Seil anzeigen",
-            tooltip="Zeigt den Seilverlauf ohne Last (nur Eigengewicht).",
-            button_style="",
-            layout=w.Layout(width="auto")
-        )
-        self._relaxed_toggle.add_class("profile-btn")
-        self._relaxed_toggle.observe(self._on_relaxed_toggle, names="value")
-
-        self._controls = w.HBox(
-            [self._relaxed_toggle],
-            layout=w.Layout(width="100%", justify_content="flex-start", gap="8px", margin="0 0 4px 0")
         )
 
         # 2. Inner wrapper
@@ -49,48 +33,7 @@ class ProfileChart:
         self.chart_wrapper.add_class("border-radius")
 
         # CSS helper
-        self._css = w.HTML(
-            """
-            <style>
-              .border-radius { border-radius: 12px; }
-              .profile-scope .profile-btn {
-                border-radius: 14px !important;
-                border: 2px solid #94b48a !important;
-                background-color: rgb(241, 248, 241) !important;
-                color: #0f2010 !important;
-                font-weight: 600 !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                min-height: 34px !important;
-                padding: 0 12px !important;
-                line-height: 1 !important;
-                cursor: pointer !important;
-                transition: transform .06s ease, box-shadow .06s ease, border-color .06s ease, background-color .06s ease;
-                user-select: none !important;
-              }
-              .profile-scope .profile-btn:hover {
-                border-color: #48723b !important;
-                transform: translateY(-1px) !important;
-              }
-              .profile-scope .profile-btn:focus-visible {
-                outline: 2px solid #6aa86a !important;
-                outline-offset: 2px !important;
-              }
-              .profile-scope .profile-btn--active {
-                background: #2f6f3e !important;
-                color: #ffffff !important;
-                border-color: #225c2f !important;
-                box-shadow: 0 0 0 3px rgba(47,111,62,.22);
-              }
-              .profile-scope .profile-btn:disabled {
-                opacity: 0.45;
-                cursor: not-allowed !important;
-                transform: none !important;
-              }
-            </style>
-            """
-        )
+        self._css = w.HTML("<style>.border-radius { border-radius: 12px; }</style>")
 
         # 3. Scroll wrapper
         self.scroll_container = w.Box(
@@ -106,7 +49,7 @@ class ProfileChart:
         
         # 4. Main Container
         self.container = w.VBox(
-            [self._css, self._title_html, self._controls, self.scroll_container], 
+            [self._css, self._title_html, self.scroll_container], 
             layout=w.Layout(
                 width="100%", 
                 height="auto",
@@ -115,7 +58,6 @@ class ProfileChart:
                 gap="10px"
             )
         )
-        self.container.add_class("profile-scope")
 
     def _setup_layout(self):
         self.fig.update_layout(
@@ -130,30 +72,6 @@ class ProfileChart:
             width=1000, 
             autosize=False 
         )
-
-    def _on_relaxed_toggle(self, change):
-        if self._suppress_toggle_event:
-            return
-        self._sync_toggle_style()
-        if self._last_data:
-            self._render(self._last_data)
-
-    def _set_relaxed_toggle(self, enabled: bool) -> None:
-        self._suppress_toggle_event = True
-        self._relaxed_toggle.disabled = not enabled
-        if not enabled:
-            self._relaxed_toggle.value = False
-        self._sync_toggle_style()
-        self._suppress_toggle_event = False
-
-    def _sync_toggle_style(self) -> None:
-        try:
-            if self._relaxed_toggle.value:
-                self._relaxed_toggle.add_class("profile-btn--active")
-            else:
-                self._relaxed_toggle.remove_class("profile-btn--active")
-        except Exception:
-            pass
 
     def update(self, data: Dict[str, Any]):
         """
@@ -177,8 +95,6 @@ class ProfileChart:
 
         cable_profile = data.get("cable_profile") or {}
         has_cable_profile = bool(cable_profile.get("x"))
-        self._set_relaxed_toggle(has_cable_profile)
-        show_relaxed = has_cable_profile and self._relaxed_toggle.value
 
         # Extracted Stats
         c_len = data.get("length_m", 0.0)
@@ -399,16 +315,16 @@ class ProfileChart:
             y=cable_loaded_y,
             mode="lines",
             line=dict(color="black", width=1.5, shape="spline", smoothing=0.4),
-            name="Tragseil (belastet)" if show_relaxed else "Tragseil",
+            name="Tragseil (belastet)",
             customdata=custom_data_skyline,
             hovertemplate=(
                 "<b>Seiltrasse %{customdata[0]}</b><br>"
                 "Länge: %{customdata[1]:.1f} m<br>"
                 "Kosten: %{customdata[2]:.0f} €<extra></extra>"
             ),
-            showlegend=show_relaxed
+            showlegend=False
         ))
-        if show_relaxed and cable_unloaded_y is not None:
+        if has_cable_profile and cable_unloaded_y is not None:
             self.fig.add_trace(go.Scatter(
                 x=cable_x,
                 y=cable_unloaded_y,
@@ -421,9 +337,9 @@ class ProfileChart:
                     "Länge: %{customdata[1]:.1f} m<br>"
                     "Kosten: %{customdata[2]:.0f} €<extra></extra>"
                 ),
-                showlegend=True
+                showlegend=False
             ))
-        self.fig.update_layout(showlegend=show_relaxed)
+        self.fig.update_layout(showlegend=False)
 
         # --- 6. Road Anchors (Reverted to Standard Small Tree) ---
         ra_label = "Ankerbaum" if ra_count == 1 else "Ankerbäume"
