@@ -314,7 +314,7 @@ class ProfileChart:
             x=cable_x,
             y=cable_loaded_y,
             mode="lines",
-            line=dict(color="black", width=1.5, shape="spline", smoothing=0.4),
+            line=dict(color="#94b48a", width=1.5, shape="spline", smoothing=0.4),
             name="Tragseil (belastet)",
             customdata=custom_data_skyline,
             hovertemplate=(
