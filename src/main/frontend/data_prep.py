@@ -443,6 +443,38 @@ class VizData:
             tree_coords = np.column_stack((tree_x, tree_y))
         bhd_series = gtrees.get("BHD", pd.Series([None] * len(gtrees)))
         tree_bhd_cm = [None if pd.isna(b) else float(b) for b in bhd_series]
+        street_anchor_x: List[float] = []
+        street_anchor_y: List[float] = []
+        street_anchor_bhd_cm: List[Optional[float]] = []
+        anchor_gdf = getattr(fa, "anchor_trees_gdf", None)
+        if anchor_gdf is not None:
+            try:
+                if hasattr(anchor_gdf, "geometry"):
+                    street_anchor_x = [float(geom.x) for geom in anchor_gdf.geometry]
+                    street_anchor_y = [float(geom.y) for geom in anchor_gdf.geometry]
+                elif hasattr(anchor_gdf, "columns") and "x" in anchor_gdf and "y" in anchor_gdf:
+                    street_anchor_x = [float(v) for v in anchor_gdf["x"]]
+                    street_anchor_y = [float(v) for v in anchor_gdf["y"]]
+                elif isinstance(anchor_gdf, (list, tuple)):
+                    for entry in anchor_gdf:
+                        ax, ay, abhd, _ = _extract_tree_metadata(entry)
+                        if ax is None or ay is None:
+                            continue
+                        street_anchor_x.append(float(ax))
+                        street_anchor_y.append(float(ay))
+                        street_anchor_bhd_cm.append(abhd)
+            except Exception:
+                street_anchor_x = []
+                street_anchor_y = []
+        if street_anchor_x and not street_anchor_bhd_cm:
+            if hasattr(anchor_gdf, "get"):
+                bhd_series = anchor_gdf.get("BHD", pd.Series([None] * len(street_anchor_x)))
+                street_anchor_bhd_cm = [
+                    None if pd.isna(b) else float(b)
+                    for b in bhd_series
+                ]
+            else:
+                street_anchor_bhd_cm = [None] * len(street_anchor_x)
         volumes_by_idx = self._compute_fixed_volumes_for_map()
         corridors: Dict[int, Dict[str, Any]] = {}
         subset = fa.line_gdf.loc[idx_all] if len(idx_all) else fa.line_gdf.iloc[[]]
@@ -591,6 +623,9 @@ class VizData:
                     if "x" in ra and "y" in ra:
                         x_vals.append(float(ra["x"]))
                         y_vals.append(float(ra["y"]))
+        if street_anchor_x and street_anchor_y:
+            x_vals.extend(street_anchor_x)
+            y_vals.extend(street_anchor_y)
         if x_vals and y_vals:
             pad = 10.0
             minx, maxx = min(x_vals), max(x_vals)
@@ -647,6 +682,9 @@ class VizData:
             tree_x=tree_x,
             tree_y=tree_y,
             tree_bhd_cm=tree_bhd_cm,
+            street_anchor_x=street_anchor_x,
+            street_anchor_y=street_anchor_y,
+            street_anchor_bhd_cm=street_anchor_bhd_cm,
             support_tree_mask=support_tree_mask,
             support_trees_by_corridor=support_trees_by_corridor,
             tree_color_default=tree_color_default,

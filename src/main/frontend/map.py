@@ -12,6 +12,7 @@ class Map:
     """
     This component receives vd.map from VizData and renders:
       - trees (with precomputed per-tree colors for each optimization)
+      - street anchor trees (road-side anchor candidates)
       - cable corridors as polylines
       - tail anchors and road anchors
       - fixed-frame square layout in a green-ish card
@@ -150,6 +151,9 @@ class Map:
             if getattr(tr, "meta", None) == "legend-only":
                 tr.visible = True
                 continue
+            if getattr(tr, "meta", None) == "street-anchors":
+                tr.visible = True
+                continue
             if getattr(tr, "name", None) == "trees":
                 tr.visible = True
 
@@ -200,7 +204,7 @@ class Map:
         # ------------------------------------------------------------------
         for tr in self.fig.data:
             meta = getattr(tr, "meta", None)
-            if meta in ("legend-only", "trees"):
+            if meta in ("legend-only", "trees", "street-anchors"):
                 continue
             tr.visible = False
 
@@ -353,6 +357,45 @@ class Map:
                 meta="legend-only",
             )
         )
+
+        # ----------------------------------------------------------
+        # 1b. Street anchor trees (candidates near roads)
+        # ----------------------------------------------------------
+        street_anchor_x = self.data.get("street_anchor_x", [])
+        street_anchor_y = self.data.get("street_anchor_y", [])
+        street_anchor_bhd = self.data.get("street_anchor_bhd_cm", [])
+        street_custom = (
+            [[b] for b in street_anchor_bhd]
+            if len(street_anchor_bhd) == len(street_anchor_x)
+            else None
+        )
+        if street_anchor_x and street_anchor_y:
+            fig.add_trace(
+                go.Scatter(
+                    x=street_anchor_x,
+                    y=street_anchor_y,
+                    mode="markers",
+                    marker=dict(
+                        symbol="x",
+                        size=7,
+                        color="rgba(255, 140, 0, 0.75)",
+                    ),
+                    name="Straßen Ankerbäume",
+                    legendrank=5,
+                    legendgroup="street-anchor",
+                    customdata=street_custom,
+                    hovertemplate=(
+                        "Straßen Ankerbaum<br>"
+                        "X: %{x:.2f}<br>"
+                        "Y: %{y:.2f}<br>"
+                        "BHD: %{customdata[0]:.1f} cm<extra></extra>"
+                    )
+                    if street_custom
+                    else "Straßen Ankerbaum<br>X: %{x:.2f}<br>Y: %{y:.2f}<extra></extra>",
+                    showlegend=True,
+                    meta="street-anchors",
+                )
+            )
 
         # ----------------------------------------------------------
         # 2. Optional support/mast trees
