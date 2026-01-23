@@ -20,7 +20,7 @@ class ProfileChart:
         )
 
         # 2. Inner wrapper (Holds the Plotly Figure)
-        #    Fixed width to match base_width exactly, preventing internal overflow.
+        #    Fixed width to match base_width exactly (1050px).
         self.chart_wrapper = w.Box(
             [self.fig],
             layout=w.Layout(
@@ -45,30 +45,30 @@ class ProfileChart:
         )
 
         # 3. Scroll container
-        #    Kept as a safety mechanism: if the user's screen is < 1050px,
-        #    this allows scrolling the graph specifically, but on large screens
-        #    it won't show a scrollbar because the content now fits exactly.
+        #    Handles the scrollbar if the screen is narrower than the fixed chart_wrapper.
         self.scroll_container = w.Box(
             [self.chart_wrapper],
             layout=w.Layout(
                 width="100%",          
-                overflow_x="auto",     
+                min_width="0",         # Important: allows flex item to shrink below content size
+                overflow_x="auto",     # Scrollbar appears here if needed
                 overflow_y="hidden",
                 display="block"
             )
         )
         
         # 4. Main Container
+        #    Width is 100% (responsive) but capped at base_width (1050px) to match the table.
+        #    min_width is removed so it doesn't force page scrolling.
         self.container = w.VBox(
             [self._css, self._title_html, self.scroll_container],
             layout=w.Layout(
-                width=f"{self._base_width}px",
-                max_width=f"{self._base_width}px",
-                min_width=f"{self._base_width}px",
+                width="100%",
+                max_width=f"{self._base_width}px", 
                 padding="0px",
                 background_color="rgb(241, 248, 241)",
                 overflow="hidden",      
-                align_items="flex-start",
+                align_items="stretch",
                 gap="10px"
             )
         )
@@ -141,11 +141,10 @@ class ProfileChart:
         pad = max(5.0, min(15.0, span * 0.03))
         
         # --- SIZE ADJUSTMENT ---
-        # REMOVED: The logic that calculated 'span_ratio' and increased fig_width.
-        # ADDED: Force width to be exactly _base_width.
+        # Force graph to stay at base_width. 
+        # The container will scroll if the screen is smaller.
         fig_width = self._base_width
         
-        # Update Figure and Wrapper Widths to be static
         self.fig.update_layout(width=fig_width)
         self.chart_wrapper.layout.width = f"{fig_width}px"
         self.chart_wrapper.layout.min_width = f"{fig_width}px"
