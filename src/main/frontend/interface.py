@@ -47,12 +47,15 @@ _NAMES = {
 }
 
 _SELECTED_TABLE_WIDTH = 1050
+_SECTION_GAP = "24px"
 
 
 def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VBox:
     vd = build_viz_data(forest_area_3, model_list, results_df)
 
     map_component = Map(vd.map, "Seiltrassen Karte")
+    map_widget = map_component.get_map_widget()
+    map_widget.layout.margin = "0"
     
     selected_table_width = _SELECTED_TABLE_WIDTH
     profile_chart = ProfileChart(base_width=selected_table_width)
@@ -124,7 +127,9 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
 
     def on_model_select(idx: int | None):
         """Called when 'Modell' is changed."""
-        
+        if hasattr(radar_chart, "set_selected_idx"):
+            radar_chart.set_selected_idx(idx)
+
         _on_select_with_vd(
             idx, vd, results_df, selected_table, anchor_table, map_component, overview_table
         )
@@ -167,24 +172,26 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
 
     toolbar = w.HBox(
         [model_selector.get_widget(), corridor_selector.get_widget()],
-        layout=w.Layout(width="100%", max_width="1500px", align_items="center", margin="5px 0"),
+        layout=w.Layout(width="100%", max_width="1500px", align_items="center", margin="0", gap=_SECTION_GAP),
     )
 
     sel_widget  = selected_table.getWidget()
     anch_widget = anchor_table.getWidget()
-    # Remove margin from sel_widget since flex gap handles spacing better now
-    sel_widget.layout.margin = "0 24px 24px 0"
+    # Rely on flex gap for spacing between tables
+    sel_widget.layout.margin = "0"
+    anch_widget.layout.margin = "0"
 
     details_row = w.Box(
         [sel_widget, anch_widget],
         layout=w.Layout(
             width="100%",
             align_items="flex-start",
-            margin="20px 0",
+            margin="0",
             overflow="visible",
             display="flex",
             flex_flow="row wrap",
             justify_content="flex-start",
+            gap=_SECTION_GAP,
         ),
     )
     details_row.add_class("details-row")
@@ -192,18 +199,24 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
 
     radar_chart.layout.width = "100%"
     radar_chart.layout.align_items = "center"
+    radar_chart.layout.margin = "0"
     radar_chart.add_class("section-block")
+
+    overview_widget = overview_table.getWidget()
+    overview_widget.layout.margin = "0"
+    profile_widget = profile_chart.get_widget()
+    profile_widget.layout.margin = "0"
 
     ui = w.VBox(
         [
-            map_component.get_map_widget(),
+            map_widget,
             toolbar,
             radar_chart,
-            overview_table.getWidget(),
+            overview_widget,
             details_row,
-            profile_chart.get_widget()
+            profile_widget
         ],
-        layout=w.Layout(width="100%", align_items="stretch", gap="20px"),
+        layout=w.Layout(width="100%", align_items="stretch", gap=_SECTION_GAP),
     )
     ui.add_class("app-shell")
 
