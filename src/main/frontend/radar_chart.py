@@ -13,6 +13,7 @@ _THEME = {
     "panel_bg": "rgb(255, 255, 255)",
     "grid": "#e0e0e0",
     "card_border": "#94b48a",
+    "selected_border": "#2b6cb0",
     "text": "#0f2010",
 
     "muted_line": "rgba(120, 120, 120, 0.85)",
@@ -44,6 +45,7 @@ _SORT_LABELS = [
 _CONSTANTS = {
     "sort_bar_height": 32,
     "sort_bar_gap": 10,
+    "panel_gap": 24,
 }
 
 # ---------- Lightweight CSS helpers ----------
@@ -176,7 +178,7 @@ def _build_big_radar(scores: pd.DataFrame, active_indices: List[int], height: in
             border=f"2px solid {_THEME['card_border']}",
             overflow="hidden",
             background_color=_THEME["card_bg"],
-            margin="0 24px 24px 0",
+            margin="0",
         ))
     
     container.add_class("border-radius")
@@ -273,7 +275,7 @@ def _build_radar_grid(scores: pd.DataFrame, height: int, width: int, axes: List[
             align_items="stretch",
             overflow="hidden",
             width=f"{width}px",
-            margin="0 0 24px 0",
+            margin="0",
         )
     )
 
@@ -282,7 +284,26 @@ def _build_radar_grid(scores: pd.DataFrame, height: int, width: int, axes: List[
 
 # ---------- Interaction ----------
 
-def _apply_state(idx: int, active: bool, big_fig: go.FigureWidget, index_to_trace: Dict[int, int], mini: go.FigureWidget, card: w.VBox) -> None:
+def _border_style(active: bool, selected: bool) -> str:
+    if selected:
+        color = _THEME["selected_border"]
+    elif active:
+        color = _THEME["card_border"]
+    else:
+        color = "rgba(0,0,0,0.28)"
+    style = "solid" if active else "dashed"
+    return f"2px {style} {color}"
+
+
+def _apply_state(
+    idx: int,
+    active: bool,
+    big_fig: go.FigureWidget,
+    index_to_trace: Dict[int, int],
+    mini: go.FigureWidget,
+    card: w.VBox,
+    selected_idx: Optional[int] = None,
+) -> None:
     """Toggle active/inactive styles for big and mini radar."""
 
     tnum = index_to_trace.get(idx)
@@ -293,7 +314,8 @@ def _apply_state(idx: int, active: bool, big_fig: go.FigureWidget, index_to_trac
     fill = getattr(mini, "_orig_fill", _THEME["muted_fill"]) if active else _THEME["muted_fill"]
     tcolor = _THEME["text"] if active else _THEME["muted_text"]
     bg = _THEME["card_bg"] if active else _THEME["mini_bg_inactive"]
-    border = f"2px solid {_THEME['card_border']}" if active else "2px dashed rgba(0,0,0,0.28)"
+    selected = (selected_idx is not None and idx == selected_idx)
+    border = _border_style(active, selected)
 
     with mini.batch_update():
         trace = cast(go.Scatterpolar, mini.data[0])
@@ -365,6 +387,7 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
             flex_flow="row wrap",
             justify_content="flex-start",
             align_items="flex-start",
+            gap=f"{_CONSTANTS['panel_gap']}px",
         ),
     )
 
@@ -374,6 +397,8 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
     charts.add_class("radar-section")
     charts.layout.align_self = "flex-start"
     
+    selected_idx: Optional[int] = None
+
     def _apply_sort(kind: str) -> None:
         order = _compute_order(kind, scores, original_order)
 
@@ -383,7 +408,7 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
         for idx in order:
             card = cards_by_idx[idx]
             live_mini = card.children[0]
-            _apply_state(idx, active[idx], big_fig, index_to_trace, live_mini, card)
+            _apply_state(idx, active[idx], big_fig, index_to_trace, live_mini, card, selected_idx)
 
     sort_dropdown.observe(lambda ch: _apply_sort(ch["new"]) if ch["name"] == "value" else None, names="value")
 
@@ -396,7 +421,7 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
             new_state = not active[_idx]
             active[_idx] = new_state
             live_mini = _card.children[0]
-            _apply_state(_idx, new_state, big_fig, index_to_trace, live_mini, _card)
+            _apply_state(_idx, new_state, big_fig, index_to_trace, live_mini, _card, selected_idx)
             if on_toggle:
                 on_toggle(_idx, new_state)
         clicker.on_dom_event(_on_click)
@@ -408,12 +433,12 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
                 _card.layout.border = f"2px solid {_THEME['hover_border']}"
             elif et == "mouseleave":
                 live_mini = _card.children[0]
-                _apply_state(_idx, active[_idx], big_fig, index_to_trace, live_mini, _card)
+                _apply_state(_idx, active[_idx], big_fig, index_to_trace, live_mini, _card, selected_idx)
         hoverer.on_dom_event(_on_hover)
 
     # initial paint of styles
     for idx in minis_by_idx.keys():
-        _apply_state(idx, True, big_fig, index_to_trace, minis_by_idx[idx], cards_by_idx[idx])
+        _apply_state(idx, True, big_fig, index_to_trace, minis_by_idx[idx], cards_by_idx[idx], selected_idx)
 
     title_html = w.HTML(
         (
@@ -430,6 +455,43 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
         layout=w.Layout(width="100%")
     )
 
+    def _set_selected_idx(idx: Optional[int]) -> None:
+        nonlocal selected_idx
+        new_idx = None if idx is None or idx < 0 else int(idx)
+        if new_idx is not None and new_idx not in cards_by_idx:
+            new_idx = None
+        if new_idx == selected_idx:
+            return
+
+        prev_idx = selected_idx
+        selected_idx = new_idx
+
+        if prev_idx is not None and prev_idx in cards_by_idx:
+            prev_card = cards_by_idx[prev_idx]
+            prev_mini = prev_card.children[0]
+            _apply_state(
+                prev_idx,
+                active.get(prev_idx, True),
+                big_fig,
+                index_to_trace,
+                prev_mini,
+                prev_card,
+                selected_idx,
+            )
+
+        if selected_idx is not None and selected_idx in cards_by_idx:
+            new_card = cards_by_idx[selected_idx]
+            new_mini = new_card.children[0]
+            _apply_state(
+                selected_idx,
+                active.get(selected_idx, True),
+                big_fig,
+                index_to_trace,
+                new_mini,
+                new_card,
+                selected_idx,
+            )
+
     container = w.VBox(
         [title_html, charts, _BORDER_RADIUS_CSS, _POINTER_CSS, _DROPDOWN_CSS],
         layout=w.Layout(
@@ -439,5 +501,6 @@ def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: 
         )
     )
     container.add_class("app-scope")
+    container.set_selected_idx = _set_selected_idx
     
     return container

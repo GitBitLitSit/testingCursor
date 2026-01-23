@@ -67,7 +67,10 @@ class ResultSelector:
         self._dropdown.observe(self._handle_change, names="value")
 
         label_html = w.HTML(f"<span class='sort-label'><b>{self.label}:</b></span>")
-        container = w.HBox([label_html, self._dropdown], layout=w.Layout(width="300px", align_items="center", margin="0 0 10px 0"))
+        container = w.HBox(
+            [label_html, self._dropdown],
+            layout=w.Layout(width="300px", align_items="center", margin="0", gap="8px"),
+        )
         self.widget = w.VBox([_DROPDOWN_CSS, container])
         self.widget.add_class("app-scope")
 
