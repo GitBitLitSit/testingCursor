@@ -8,7 +8,7 @@ class ProfileChart:
     Visualizes the Side Profile of a single Cable Corridor.
     """
     def __init__(self):
-        self._base_width = 1200
+        self._base_width = 1050
         self.fig = go.FigureWidget()
         self._setup_layout()
         self._last_data: Optional[Dict[str, Any]] = None
@@ -73,15 +73,15 @@ class ProfileChart:
         self.fig.update_layout(
             paper_bgcolor="rgb(241, 248, 241)", 
             plot_bgcolor="rgb(241, 248, 241)",
-            margin=dict(l=30, r=20, t=20, b=70),
+            margin=dict(l=30, r=20, t=20, b=110),
             xaxis=dict(title="Distanz (m)", showgrid=False),
             yaxis=dict(title="Höhe (m)", showgrid=True, gridcolor="#d0d0d0"),
             hovermode="closest",
             showlegend=True,
             legend=dict(
-                orientation="h",
+                orientation="v",
                 yanchor="top",
-                y=-0.2,
+                y=-0.15,
                 xanchor="left",
                 x=0
             ),
