@@ -50,10 +50,8 @@ class ProfileChart:
                 width="100%",
                 max_width="100%",
                 min_width="0",
-                overflow_x="auto",   
+                overflow_x="auto",
                 overflow_y="hidden",
-                display="flex",
-                justify_content="flex-start"
             )
         )
         
@@ -61,12 +59,13 @@ class ProfileChart:
         self.container = w.VBox(
             [self._css, self._title_html, self.scroll_container],
             layout=w.Layout(
-                width="100%",
+                width=f"{self._base_width}px",
                 max_width=f"{self._base_width}px",
-                min_width="0",
+                min_width=f"{self._base_width}px",
                 height="auto",
                 padding="0px",
                 background_color="rgb(241, 248, 241)",
+                overflow_x="hidden",
                 align_items="flex-start",
                 gap="10px"
             )
