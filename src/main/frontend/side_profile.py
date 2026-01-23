@@ -13,13 +13,14 @@ class ProfileChart:
         self._setup_layout()
         self._last_data: Optional[Dict[str, Any]] = None
         
-        # 1. Title Widget (Outside the figure)
+        # 1. Title Widget
         self._title_html = w.HTML(
             value="<div style='font-weight:800; font-size:18px; margin-bottom:6px;'>Seiltrassen Profilansicht</div>",
             layout=w.Layout(width="100%")
         )
 
-        # 2. Inner wrapper
+        # 2. Inner wrapper (Holds the Plotly Figure)
+        #    Fixed width to match base_width exactly, preventing internal overflow.
         self.chart_wrapper = w.Box(
             [self.fig],
             layout=w.Layout(
@@ -31,7 +32,7 @@ class ProfileChart:
                 border="2px solid #94b48a", 
                 background_color="rgb(241, 248, 241)", 
                 padding="0px",       
-                overflow="hidden"
+                overflow="hidden" 
             )
         )
         self.chart_wrapper.add_class("border-radius")
@@ -43,15 +44,17 @@ class ProfileChart:
             "</style>"
         )
 
-        # 3. Scroll wrapper
+        # 3. Scroll container
+        #    Kept as a safety mechanism: if the user's screen is < 1050px,
+        #    this allows scrolling the graph specifically, but on large screens
+        #    it won't show a scrollbar because the content now fits exactly.
         self.scroll_container = w.Box(
             [self.chart_wrapper],
             layout=w.Layout(
-                width="100%",
-                max_width="100%",
-                min_width="0",
-                overflow_x="auto",
+                width="100%",          
+                overflow_x="auto",     
                 overflow_y="hidden",
+                display="block"
             )
         )
         
@@ -62,10 +65,9 @@ class ProfileChart:
                 width=f"{self._base_width}px",
                 max_width=f"{self._base_width}px",
                 min_width=f"{self._base_width}px",
-                height="auto",
                 padding="0px",
                 background_color="rgb(241, 248, 241)",
-                overflow_x="hidden",
+                overflow="hidden",      
                 align_items="flex-start",
                 gap="10px"
             )
@@ -118,7 +120,6 @@ class ProfileChart:
         # Extracted Stats
         c_len = data.get("length_m", 0.0)
         c_cost = data.get("cost", 0.0)
-        # Volume and gradient removed from hover as requested
 
         # --- 1. Terrain Construction ---
         yx, yy = data["yarder"]["x"], data["yarder"]["y"]
@@ -138,9 +139,13 @@ class ProfileChart:
         right_edge = max(base_right, right_anchor_x)
         span = max(1.0, base_right - base_left)
         pad = max(5.0, min(15.0, span * 0.03))
-        full_span = right_edge - left_edge
-        span_ratio = max(1.0, full_span / span)
-        fig_width = int(round(self._base_width * span_ratio))
+        
+        # --- SIZE ADJUSTMENT ---
+        # REMOVED: The logic that calculated 'span_ratio' and increased fig_width.
+        # ADDED: Force width to be exactly _base_width.
+        fig_width = self._base_width
+        
+        # Update Figure and Wrapper Widths to be static
         self.fig.update_layout(width=fig_width)
         self.chart_wrapper.layout.width = f"{fig_width}px"
         self.chart_wrapper.layout.min_width = f"{fig_width}px"
@@ -185,18 +190,12 @@ class ProfileChart:
         ))
         self.fig.update_xaxes(range=[left_edge - pad, right_edge + pad])
 
-        # --- Helper: Draw Tree with Hover (Updated Visuals) ---
+        # --- Helper: Draw Tree with Hover ---
         def add_tree_shape(x, y_ground, visual_trunk_height, real_height_for_hover, 
                            color="green", label="", bhd=None,
                            crown_h=10.0, crown_w=6.0, show_height_tooltip=True,
                            height_label="Tragseilhöhe"):
-            """
-            Draws a tree with a crown sitting on top of a trunk.
-            """
-            # Visual Parameters
             trunk_width = 1.0       
-            
-            # 1. Trunk (Brown Rectangle)
             trunk_top = y_ground + visual_trunk_height
             
             self.fig.add_shape(type="rect",
@@ -205,7 +204,6 @@ class ProfileChart:
                 fillcolor="brown", line_width=0, layer="below"
             )
             
-            # 2. Crown (Green Triangle)
             crown_base_y = trunk_top
             crown_tip_y = crown_base_y + crown_h
             
@@ -217,14 +215,12 @@ class ProfileChart:
             
             self.fig.add_shape(type="path", path=path, fillcolor=color, line_color="black", line_width=1, layer="below")
             
-            # 3. Label
             if label:
                  self.fig.add_annotation(
                     x=x, y=crown_tip_y + 2,
                     text=label, showarrow=False, font=dict(size=10, color="#333")
                 )
             
-            # 4. Invisible Hover Marker
             if bhd is not None:
                 try:
                     bhd_val = float(bhd)
@@ -234,7 +230,6 @@ class ProfileChart:
             else:
                 bhd_str = "N/A" 
 
-            # Construct tooltip
             hover_template = (
                 f"<b>{label if label else 'Baum'}</b><br>"
                 f"X: {x:.1f} m<br>"
@@ -288,11 +283,9 @@ class ProfileChart:
         # --- 3. Tail Tree (Endmast) ---
         th = data["tail_tree"]["height"]
         tail_attach_h = data["tail_tree"].get("attachment_height", th)
-        
         dt = data["tail_tree"]
         tbhd = dt.get("BHD") or dt.get("bhd")
         
-        # Endmast: trunk = Tragseilhöhe + 1m, crown on top
         visual_trunk_h_end = tail_attach_h + 1.0
         max_y_candidates.append(ty_end + visual_trunk_h_end + 10.0 + 2.0)
         
@@ -314,7 +307,6 @@ class ProfileChart:
             sbhd = sup.get("BHD") or sup.get("bhd")
             max_y_candidates.append(sy + (sh + 1.0) + 10.0 + 2.0)
             
-            # Supports: trunk = Tragseilhöhe + 1m, crown on top
             add_tree_shape(sx, sy, 
                            visual_trunk_height=sh + 1.0, 
                            real_height_for_hover=sh, 
@@ -327,11 +319,10 @@ class ProfileChart:
             cable_points_x.append(sx)
             cable_points_y.append(sy + sh)
 
-        # Connect to Endmast at Trunk Top
         cable_points_x.append(tx_end)
         cable_points_y.append(ty_end + tail_attach_h)
 
-        # --- 5. Skyline (Clean Hover) ---
+        # --- 5. Skyline ---
         cable_x = cable_points_x
         cable_loaded_y = cable_points_y
         cable_unloaded_y = None
@@ -377,7 +368,7 @@ class ProfileChart:
             max_y_candidates.append(float(np.max(cable_unloaded_y)))
         self.fig.update_layout(showlegend=True)
 
-        # --- 6. Road Anchors (Reverted to Standard Small Tree) ---
+        # --- 6. Road Anchors ---
         ra_label = "Ankerbaum" if ra_count == 1 else "Ankerbäume"
         dotted_color = "#7a9c74"
         
@@ -392,7 +383,6 @@ class ProfileChart:
                 if isinstance(item, dict):
                     abha = item.get("BHD") or item.get("bhd")
 
-            # Simple fixed small visual: 2m trunk + 6m crown = 8m total
             add_tree_shape(ax, ay, 
                            visual_trunk_height=2.0, 
                            real_height_for_hover=0, 
@@ -409,7 +399,7 @@ class ProfileChart:
                 showlegend=False
             ))
 
-        # --- 7. Tail Anchors (Reverted to Standard Small Tree) ---
+        # --- 7. Tail Anchors ---
         ta_label = "Ankerbaum" if ta_count == 1 else "Ankerbäume"
 
         for i in range(ta_count):
@@ -423,7 +413,6 @@ class ProfileChart:
                 if isinstance(item, dict):
                     abha = item.get("BHD") or item.get("bhd")
 
-            # Simple fixed small visual
             add_tree_shape(ax, ay, 
                            visual_trunk_height=2.0, 
                            real_height_for_hover=0, 
