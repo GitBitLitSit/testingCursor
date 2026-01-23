@@ -8,6 +8,7 @@ class ProfileChart:
     Visualizes the Side Profile of a single Cable Corridor.
     """
     def __init__(self):
+        self._base_width = 1200
         self.fig = go.FigureWidget()
         self._setup_layout()
         self._last_data: Optional[Dict[str, Any]] = None
@@ -22,8 +23,11 @@ class ProfileChart:
         self.chart_wrapper = w.Box(
             [self.fig],
             layout=w.Layout(
-                width="auto",        
-                display="inline-block", 
+                width=f"{self._base_width}px",
+                min_width=f"{self._base_width}px",
+                max_width=f"{self._base_width}px",
+                display="inline-block",
+                flex="0 0 auto",
                 border="2px solid #94b48a", 
                 background_color="rgb(241, 248, 241)", 
                 padding="0px",       
@@ -33,17 +37,23 @@ class ProfileChart:
         self.chart_wrapper.add_class("border-radius")
 
         # CSS helper
-        self._css = w.HTML("<style>.border-radius { border-radius: 12px; }</style>")
+        self._css = w.HTML(
+            "<style>"
+            ".border-radius { border-radius: 12px; box-sizing: border-box; }"
+            "</style>"
+        )
 
         # 3. Scroll wrapper
         self.scroll_container = w.Box(
             [self.chart_wrapper],
             layout=w.Layout(
                 width="100%",
+                max_width="100%",
+                min_width="0",
                 overflow_x="auto",   
                 overflow_y="hidden",
                 display="flex",
-                justify_content="flex-start" 
+                justify_content="flex-start"
             )
         )
         
@@ -63,20 +73,20 @@ class ProfileChart:
         self.fig.update_layout(
             paper_bgcolor="rgb(241, 248, 241)", 
             plot_bgcolor="rgb(241, 248, 241)",
-            margin=dict(l=30, r=20, t=40, b=30),
+            margin=dict(l=30, r=20, t=20, b=70),
             xaxis=dict(title="Distanz (m)", showgrid=False),
             yaxis=dict(title="Höhe (m)", showgrid=True, gridcolor="#d0d0d0"),
             hovermode="closest",
             showlegend=True,
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=1.02,
+                yanchor="top",
+                y=-0.2,
                 xanchor="left",
                 x=0
             ),
             height=450,
-            width=1050, 
+            width=self._base_width,
             autosize=False 
         )
 
@@ -126,6 +136,13 @@ class ProfileChart:
         right_edge = max(base_right, right_anchor_x)
         span = max(1.0, base_right - base_left)
         pad = max(5.0, min(15.0, span * 0.03))
+        full_span = right_edge - left_edge
+        span_ratio = max(1.0, full_span / span)
+        fig_width = int(round(self._base_width * span_ratio))
+        self.fig.update_layout(width=fig_width)
+        self.chart_wrapper.layout.width = f"{fig_width}px"
+        self.chart_wrapper.layout.min_width = f"{fig_width}px"
+        self.chart_wrapper.layout.max_width = f"{fig_width}px"
 
         slope_start = (ty[1] - ty[0]) / (tx[1] - tx[0]) if len(tx) > 1 else 0
         ext_x_left = np.array([left_edge - pad, left_edge - pad * 0.5])
