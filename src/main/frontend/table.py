@@ -1,6 +1,5 @@
-from turtle import color
 import ipywidgets as w
-from typing import List, Optional, Callable  # ← added Callable
+from typing import Callable, List, Optional
 
 _THEME = {
     "card_bg": "rgb(241, 248, 241)",
@@ -9,7 +8,8 @@ _THEME = {
     "hover_border": "#48723b",
 }
 
-_TABLE_CSS = w.HTML(f"""
+_TABLE_CSS = w.HTML(
+    f"""
 <style>
   .my-table {{
     border-radius: 8px;                 /* outer frame can stay rounded */
@@ -80,10 +80,12 @@ _TABLE_CSS = w.HTML(f"""
     overflow-y: visible !important;
   }}
 </style>
-""", layout=w.Layout(display="none"))
+""",
+    layout=w.Layout(display="none"),
+)
 
 
-def _build_cell(text: str, isColor: bool = False, isHeader: bool = False) -> w.VBox:
+def _build_cell(text: str, is_color: bool = False, is_header: bool = False) -> w.VBox:
     label = w.Label(str(text), layout=w.Layout(margin="0", height="auto", width="auto"))
     label.add_class("tbl-label")
 
@@ -96,18 +98,17 @@ def _build_cell(text: str, isColor: bool = False, isHeader: bool = False) -> w.V
         )
     )
 
-    if isHeader:
+    if is_header:
         # Header looks like cells, just bold/bigger via CSS class
         box.add_class("header")
         box.add_class("no-background")      # same background as a normal cell
     else:
-        box.add_class("change-background" if isColor else "no-background")
+        box.add_class("change-background" if is_color else "no-background")
 
     return box
 
 
 class Table:
-    # ... (Keep __init__ and public methods exactly as they were) ...
     def __init__(
         self,
         headers: List[str],
@@ -203,6 +204,9 @@ class Table:
                 pass
 
     def getWidget(self) -> w.Widget:
+        return self.get_widget()
+
+    def get_widget(self) -> w.Widget:
         return self.root
 
     def clear_highlight(self) -> None:
@@ -273,11 +277,11 @@ class Table:
         # Header wrapper
         header_cells: List[w.Box] = []
         for h in self.headers:
-            c = _build_cell(h, isColor=True, isHeader=True)
+            c = _build_cell(h, is_color=True, is_header=True)
             header_cells.append(c)
             self._all_cells.append(c)
         if self._has_action:
-            c = _build_cell("", isColor=True, isHeader=True)
+            c = _build_cell("", is_color=True, is_header=True)
             header_cells.append(c)
             self._all_cells.append(c)
 
@@ -300,7 +304,7 @@ class Table:
             row_cells: List[w.Box] = []
 
             for item in row:
-                cell = _build_cell(item, isColor=(i % 2 == 0))
+                cell = _build_cell(item, is_color=(i % 2 == 0))
                 row_cells.append(cell)
                 self._all_cells.append(cell)
 
@@ -319,9 +323,9 @@ class Table:
                 )
                 (btn_box.add_class("change-background") if i % 2 == 0 else btn_box.add_class("no-background"))
 
-                def _make_cb(idx: int, button: w.Button):
+                def _make_cb(idx: int):
                     def _cb(_):
-                        # --- MODIFIED TOGGLE LOGIC ---
+                        # Toggle selection on repeat click.
                         if self._highlighted_row == idx:
                             # If clicking the currently selected row -> Deselect
                             self.clear_highlight()
@@ -334,7 +338,7 @@ class Table:
                                 self._on_action(idx)
                     return _cb
 
-                btn.on_click(_make_cb(i, btn))
+                btn.on_click(_make_cb(i))
                 self._action_buttons.append(btn)
                 row_cells.append(btn_box)
                 self._all_cells.append(btn_box)
@@ -354,8 +358,7 @@ class Table:
             self._row_cells.append(row_cells)
 
         return children
-    
-    # ... (Keep remaining methods set_row_muted, mute_row, etc.) ...
+
     def set_row_muted(self, index: int, muted: bool) -> None:
         if index < 0 or index >= len(self._row_cells):
             return

@@ -1,11 +1,10 @@
-import ipywidgets as w
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, cast
+
 import ipyevents as ev
+import ipywidgets as w
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-
-import numpy as np
-from plotly.colors import hex_to_rgb
-from typing import Callable, Dict, List, Optional, Tuple, Sequence, cast
 
 # ---------- Naming & _THEME ----------
 _THEME = {
@@ -127,12 +126,16 @@ def _build_big_radar(scores: pd.DataFrame, active_indices: List[int], height: in
 
     ticktext = [lbl.replace(" ", "<br>") for lbl in axes]
 
-    marginlr = max(12, int(int(width)*0.08))
-    margint = max(12, int(int(height)*0.12))
-    marginb = max(8, int(int(height)*0.06))
+    margin_lr = max(12, int(width * 0.08))
+    margin_top = max(12, int(height * 0.12))
+    margin_bottom = max(8, int(height * 0.06))
 
     fig = go.FigureWidget()
-    fig._config = {'displayModeBar': False, 'scrollZoom': False, 'doubleClick': False}
+    fig._config = {
+        "displayModeBar": False,
+        "scrollZoom": False,
+        "doubleClick": False,
+    }
     index_to_trace: Dict[int, int] = {}
 
     for t_idx, idx in enumerate(scores.index):
@@ -140,30 +143,48 @@ def _build_big_radar(scores: pd.DataFrame, active_indices: List[int], height: in
         rs = [_as_float(scores.at[idx, a]) for a in axes]
         r_closed = rs + [rs[0]]
 
-        fig.add_trace(go.Scatterpolar(
-            r=r_closed, theta=thetas, name=row["Name"], mode="lines",
-            line=dict(color=scores["color"][idx], width=2),
-            fill="toself", fillcolor=scores["fill_color"][idx],
-            visible=True if idx in active_indices else "legendonly",
-        ))
+        fig.add_trace(
+            go.Scatterpolar(
+                r=r_closed,
+                theta=thetas,
+                name=row["Name"],
+                mode="lines",
+                line=dict(color=scores["color"][idx], width=2),
+                fill="toself",
+                fillcolor=scores["fill_color"][idx],
+                visible=True if idx in active_indices else "legendonly",
+            )
+        )
         index_to_trace[idx] = t_idx
 
     fig.update_layout(
         uirevision="keep",
         paper_bgcolor=_THEME["card_bg"],
-        dragmode=False, showlegend=False,
+        dragmode=False,
+        showlegend=False,
         hoverlabel=dict(bgcolor=_THEME["panel_bg"], font=dict(color=_THEME["text"])),
         polar=dict(
             bgcolor=_THEME["card_bg"],
-            radialaxis=dict(range=[0, 1], gridcolor=_THEME["grid"], showticklabels=False, showline=False),
+            radialaxis=dict(
+                range=[0, 1],
+                gridcolor=_THEME["grid"],
+                showticklabels=False,
+                showline=False,
+            ),
             angularaxis=dict(
                 tickmode="array",
                 tickvals=axes,
                 ticktext=ticktext,
-                gridcolor=_THEME["grid"], linecolor=_THEME["grid"], tickfont=dict(color=_THEME["text"]), rotation=90, layer="below traces", showgrid=False),
-            gridshape='circular',
+                gridcolor=_THEME["grid"],
+                linecolor=_THEME["grid"],
+                tickfont=dict(color=_THEME["text"]),
+                rotation=90,
+                layer="below traces",
+                showgrid=False,
+            ),
+            gridshape="circular",
         ),
-        margin=dict(l=marginlr, r=marginlr, t=margint, b=marginb),
+        margin=dict(l=margin_lr, r=margin_lr, t=margin_top, b=margin_bottom),
         width=width,
         height=height,
     )
@@ -177,8 +198,9 @@ def _build_big_radar(scores: pd.DataFrame, active_indices: List[int], height: in
             overflow="hidden",
             background_color=_THEME["card_bg"],
             margin="0 24px 24px 0",
-        ))
-    
+        ),
+    )
+
     container.add_class("border-radius")
 
     return container, fig, index_to_trace
@@ -189,16 +211,27 @@ def _build_mini_radar(scores: pd.DataFrame, idx: int, axes: Sequence[str], theta
     rs = [_as_float(scores.at[idx, a]) for a in axes]
     r_closed = rs + [rs[0]]
 
-    mini = go.FigureWidget(data=[go.Scatterpolar(
-            r=r_closed, theta=thetas, mode="lines",
-            line=dict(color=scores["color"][idx], width=2),
-            fill="toself", fillcolor=scores["fill_color"][idx],
-            name=""
-        )])
-    
+    mini = go.FigureWidget(
+        data=[
+            go.Scatterpolar(
+                r=r_closed,
+                theta=thetas,
+                mode="lines",
+                line=dict(color=scores["color"][idx], width=2),
+                fill="toself",
+                fillcolor=scores["fill_color"][idx],
+                name="",
+            )
+        ]
+    )
+
     mini._orig_line = scores["color"][idx]
     mini._orig_fill = scores["fill_color"][idx]
-    mini._config = {'displayModeBar': False, 'scrollZoom': False, 'doubleClick': False}
+    mini._config = {
+        "displayModeBar": False,
+        "scrollZoom": False,
+        "doubleClick": False,
+    }
 
     plot_h = max(24, int(cell_h))
     plot_w = max(24, int(cell_w))
@@ -206,29 +239,51 @@ def _build_mini_radar(scores: pd.DataFrame, idx: int, axes: Sequence[str], theta
     mini.update_layout(
         uirevision="keep",
         paper_bgcolor=_THEME["card_bg"],
-        dragmode=False, showlegend=False,
-        autosize=False, width=plot_w, height=plot_h,
+        dragmode=False,
+        showlegend=False,
+        autosize=False,
+        width=plot_w,
+        height=plot_h,
         margin=dict(l=0, r=0, t=0, b=0),
         polar=dict(
             domain=dict(x=[0.13, 1 - 0.13], y=[0.22, 1 - 0.22]),
-            radialaxis=dict(range=[0, 1], gridcolor=_THEME["grid"], showticklabels=False, showline=False, ticks=""),
+            radialaxis=dict(
+                range=[0, 1],
+                gridcolor=_THEME["grid"],
+                showticklabels=False,
+                showline=False,
+                ticks="",
+            ),
             angularaxis=dict(
                 tickmode="array",
                 tickvals=axes,
                 ticktext=[lbl.replace(" ", "<br>") for lbl in axes],
                 tickfont=dict(color=_THEME["text"], size=10),
-                gridcolor=_THEME["grid"], linecolor=_THEME["grid"], rotation=90, layer="below traces", showgrid=False),
-            gridshape='circular',
+                gridcolor=_THEME["grid"],
+                linecolor=_THEME["grid"],
+                rotation=90,
+                layer="below traces",
+                showgrid=False,
+            ),
+            gridshape="circular",
         ),
     )
 
     mini.add_annotation(
-        x=0.5, y=0.02, xref="paper", yref="paper",
+        x=0.5,
+        y=0.02,
+        xref="paper",
+        yref="paper",
         text=f"{row['Name']}",
-        showarrow=False, align="center",
-        font=dict(size=13, color=_THEME["text"], family="Arial Black, Segoe UI Semibold, Inter, Arial, sans-serif"),
+        showarrow=False,
+        align="center",
+        font=dict(
+            size=13,
+            color=_THEME["text"],
+            family="Arial Black, Segoe UI Semibold, Inter, Arial, sans-serif",
+        ),
         bgcolor=_THEME["card_bg"],
-        borderpad=0
+        borderpad=0,
     )
 
     card = w.VBox(
@@ -293,7 +348,7 @@ def _apply_state(idx: int, active: bool, big_fig: go.FigureWidget, index_to_trac
     fill = getattr(mini, "_orig_fill", _THEME["muted_fill"]) if active else _THEME["muted_fill"]
     tcolor = _THEME["text"] if active else _THEME["muted_text"]
     bg = _THEME["card_bg"] if active else _THEME["mini_bg_inactive"]
-    border = f"2px solid {_THEME['card_border']}" if active else "2px dashed rgba(0,0,0,0.28)"
+    border = f"3px solid {_THEME['hover_border']}" if active else "2px dashed rgba(0,0,0,0.28)"
 
     with mini.batch_update():
         trace = cast(go.Scatterpolar, mini.data[0])
@@ -316,7 +371,7 @@ def _sort_value(scores: pd.DataFrame, i: int, col: str) -> float:
     return _as_float(scores.at[i, col])
 
 
-def _compute_order(kind:str, scores:pd.DataFrame, original_order: List[int]) -> List[int]:
+def _compute_order(kind: str, scores: pd.DataFrame, original_order: List[int]) -> List[int]:
     key = _SORT_KEYS.get(kind)
     if key is None:
         return list(original_order)
@@ -324,13 +379,32 @@ def _compute_order(kind:str, scores:pd.DataFrame, original_order: List[int]) -> 
 
 
 
-def build_radar_dashboard(scores: pd.DataFrame, height: int, width: int, names: List[str], on_toggle: Optional[Callable[[int, bool], None]] = None) -> w.VBox:
+def build_radar_dashboard(
+    scores: pd.DataFrame,
+    height: int,
+    width: int,
+    names: List[str],
+    on_toggle: Optional[Callable[[int, bool], None]] = None,
+) -> w.VBox:
+    axes = list(names)
+
     # build main large spider
-    big_card, big_fig, index_to_trace = _build_big_radar(scores, list(scores.index), height, width, names)
+    big_card, big_fig, index_to_trace = _build_big_radar(
+        scores,
+        list(scores.index),
+        height,
+        width,
+        axes,
+    )
 
     # build 3x3 minis
     grid_height = max(60, height - _CONSTANTS["sort_bar_height"] - _CONSTANTS["sort_bar_gap"])
-    grid, minis_by_idx, cards_by_idx, area_ids = _build_radar_grid(scores, grid_height, width, names)
+    grid, minis_by_idx, cards_by_idx, area_ids = _build_radar_grid(
+        scores,
+        grid_height,
+        width,
+        axes,
+    )
 
     # which minis are active initially
     active: Dict[int, bool] = {idx: True for idx in minis_by_idx.keys()}
