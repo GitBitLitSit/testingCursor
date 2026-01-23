@@ -1,7 +1,8 @@
+import numpy as np
+from typing import Any, Dict, Optional
+
 import ipywidgets as w
 import plotly.graph_objects as go
-from typing import Dict, Any, Optional
-import numpy as np
 
 class ProfileChart:
     """
@@ -12,15 +13,12 @@ class ProfileChart:
         self.fig = go.FigureWidget()
         self._setup_layout()
         self._last_data: Optional[Dict[str, Any]] = None
-        
-        # 1. Title Widget
+
         self._title_html = w.HTML(
             value="<div style='font-weight:800; font-size:18px; margin-bottom:6px;'>Seiltrassen Profilansicht</div>",
-            layout=w.Layout(width="100%")
+            layout=w.Layout(width="100%"),
         )
 
-        # 2. Inner wrapper (Holds the Plotly Figure)
-        #    Fixed width to match base_width exactly (1050px).
         self.chart_wrapper = w.Box(
             [self.fig],
             layout=w.Layout(
@@ -29,53 +27,47 @@ class ProfileChart:
                 max_width=f"{self._base_width}px",
                 display="inline-block",
                 flex="0 0 auto",
-                border="2px solid #94b48a", 
-                background_color="rgb(241, 248, 241)", 
-                padding="0px",       
-                overflow="hidden" 
-            )
+                border="2px solid #94b48a",
+                background_color="rgb(241, 248, 241)",
+                padding="0px",
+                overflow="hidden",
+            ),
         )
         self.chart_wrapper.add_class("border-radius")
 
-        # CSS helper
         self._css = w.HTML(
             "<style>"
             ".border-radius { border-radius: 12px; box-sizing: border-box; }"
             "</style>"
         )
 
-        # 3. Scroll container
-        #    Handles the scrollbar if the screen is narrower than the fixed chart_wrapper.
         self.scroll_container = w.Box(
             [self.chart_wrapper],
             layout=w.Layout(
-                width="100%",          
-                min_width="0",         # Important: allows flex item to shrink below content size
-                overflow_x="auto",     # Scrollbar appears here if needed
+                width="100%",
+                min_width="0",
+                overflow_x="auto",
                 overflow_y="hidden",
-                display="block"
-            )
+                display="block",
+            ),
         )
-        
-        # 4. Main Container
-        #    Width is 100% (responsive) but capped at base_width (1050px) to match the table.
-        #    min_width is removed so it doesn't force page scrolling.
+
         self.container = w.VBox(
             [self._css, self._title_html, self.scroll_container],
             layout=w.Layout(
                 width="100%",
-                max_width=f"{self._base_width}px", 
+                max_width=f"{self._base_width}px",
                 padding="0px",
                 background_color="rgb(241, 248, 241)",
-                overflow="hidden",      
+                overflow="hidden",
                 align_items="stretch",
-                gap="10px"
-            )
+                gap="10px",
+            ),
         )
 
-    def _setup_layout(self):
+    def _setup_layout(self) -> None:
         self.fig.update_layout(
-            paper_bgcolor="rgb(241, 248, 241)", 
+            paper_bgcolor="rgb(241, 248, 241)",
             plot_bgcolor="rgb(241, 248, 241)",
             margin=dict(l=30, r=20, t=20, b=110),
             xaxis=dict(title="Distanz (m)", showgrid=False),
@@ -87,14 +79,14 @@ class ProfileChart:
                 yanchor="top",
                 y=-0.15,
                 xanchor="left",
-                x=0
+                x=0,
             ),
             height=450,
             width=self._base_width,
-            autosize=False 
+            autosize=False,
         )
 
-    def update(self, data: Dict[str, Any]):
+    def update(self, data: Dict[str, Any]) -> None:
         """
         Expects data dict from get_side_profile_data()
         """
@@ -102,16 +94,15 @@ class ProfileChart:
         self._render(self._last_data)
 
     def _render(self, data: Dict[str, Any]) -> None:
-        self.fig.data = [] 
+        self.fig.data = []
         self.fig.layout.shapes = []
-        self.fig.layout.annotations = [] 
-        
+        self.fig.layout.annotations = []
+
         if not data:
             self._title_html.value = "<div style='font-weight:800; font-size:18px;'>Keine Seiltrasse ausgewählt</div>"
             return
 
-        # Title
-        c_id = data.get('display_id', data.get('corridor_id', '?'))
+        c_id = data.get("display_id", data.get("corridor_id", "?"))
         self._title_html.value = f"<div style='font-weight:800; font-size:18px;'>Seiltrasse {c_id}</div>"
 
         cable_profile = data.get("cable_profile") or {}
@@ -121,7 +112,7 @@ class ProfileChart:
         c_len = data.get("length_m", 0.0)
         c_cost = data.get("cost", 0.0)
 
-        # --- 1. Terrain Construction ---
+        # Terrain
         yx, yy = data["yarder"]["x"], data["yarder"]["y"]
         tx_end, ty_end = data["tail_tree"]["x"], data["tail_tree"]["y"]
         road_anchors = data.get("road_anchors", [])
@@ -140,9 +131,7 @@ class ProfileChart:
         span = max(1.0, base_right - base_left)
         pad = max(5.0, min(15.0, span * 0.03))
         
-        # --- SIZE ADJUSTMENT ---
-        # Force graph to stay at base_width. 
-        # The container will scroll if the screen is smaller.
+        # Keep graph width fixed and let the container scroll if needed.
         fig_width = self._base_width
         
         self.fig.update_layout(width=fig_width)
@@ -181,53 +170,82 @@ class ProfileChart:
         ))
 
         # Trace 2: Line
-        self.fig.add_trace(go.Scatter(
-            x=final_tx, y=final_ty, mode='lines',
-            line=dict(color='#5c4033', width=2),
-            name='Geländekante', hoverinfo='x+y',
-            showlegend=True
-        ))
+        self.fig.add_trace(
+            go.Scatter(
+                x=final_tx,
+                y=final_ty,
+                mode="lines",
+                line=dict(color="#5c4033", width=2),
+                name="Geländekante",
+                hoverinfo="x+y",
+                showlegend=True,
+            )
+        )
         self.fig.update_xaxes(range=[left_edge - pad, right_edge + pad])
 
-        # --- Helper: Draw Tree with Hover ---
-        def add_tree_shape(x, y_ground, visual_trunk_height, real_height_for_hover, 
-                           color="green", label="", bhd=None,
-                           crown_h=10.0, crown_w=6.0, show_height_tooltip=True,
-                           height_label="Tragseilhöhe"):
-            trunk_width = 1.0       
+        # Helper: draw tree with hover target
+        def add_tree_shape(
+            x,
+            y_ground,
+            visual_trunk_height,
+            real_height_for_hover,
+            color="green",
+            label="",
+            bhd=None,
+            crown_h=10.0,
+            crown_w=6.0,
+            show_height_tooltip=True,
+            height_label="Tragseilhöhe",
+        ):
+            trunk_width = 1.0
             trunk_top = y_ground + visual_trunk_height
-            
-            self.fig.add_shape(type="rect",
-                x0=x - trunk_width/2, x1=x + trunk_width/2, 
-                y0=y_ground, y1=trunk_top,
-                fillcolor="brown", line_width=0, layer="below"
+
+            self.fig.add_shape(
+                type="rect",
+                x0=x - trunk_width / 2,
+                x1=x + trunk_width / 2,
+                y0=y_ground,
+                y1=trunk_top,
+                fillcolor="brown",
+                line_width=0,
+                layer="below",
             )
-            
+
             crown_base_y = trunk_top
             crown_tip_y = crown_base_y + crown_h
-            
+
             path = (
-                f"M {x - crown_w/2},{crown_base_y} "
+                f"M {x - crown_w / 2},{crown_base_y} "
                 f"L {x},{crown_tip_y} "
-                f"L {x + crown_w/2},{crown_base_y} Z"
+                f"L {x + crown_w / 2},{crown_base_y} Z"
             )
-            
-            self.fig.add_shape(type="path", path=path, fillcolor=color, line_color="black", line_width=1, layer="below")
-            
+
+            self.fig.add_shape(
+                type="path",
+                path=path,
+                fillcolor=color,
+                line_color="black",
+                line_width=1,
+                layer="below",
+            )
+
             if label:
-                 self.fig.add_annotation(
-                    x=x, y=crown_tip_y + 2,
-                    text=label, showarrow=False, font=dict(size=10, color="#333")
+                self.fig.add_annotation(
+                    x=x,
+                    y=crown_tip_y + 2,
+                    text=label,
+                    showarrow=False,
+                    font=dict(size=10, color="#333"),
                 )
-            
+
             if bhd is not None:
                 try:
                     bhd_val = float(bhd)
                     bhd_str = f"{bhd_val:.1f} cm"
-                except:
+                except Exception:
                     bhd_str = str(bhd)
             else:
-                bhd_str = "N/A" 
+                bhd_str = "N/A"
 
             hover_template = (
                 f"<b>{label if label else 'Baum'}</b><br>"
@@ -240,18 +258,20 @@ class ProfileChart:
             else:
                 hover_template += "<extra></extra>"
 
-            self.fig.add_trace(go.Scatter(
-                x=[x],
-                y=[y_ground + (visual_trunk_height + crown_h/2)], 
-                mode='markers',
-                marker=dict(size=15, color='rgba(0,0,0,0)'),
-                customdata=[[bhd_str, real_height_for_hover]], 
-                hovertemplate=hover_template,
-                showlegend=False,
-                name=label
-            ))
+            self.fig.add_trace(
+                go.Scatter(
+                    x=[x],
+                    y=[y_ground + (visual_trunk_height + crown_h / 2)],
+                    mode="markers",
+                    marker=dict(size=15, color="rgba(0,0,0,0)"),
+                    customdata=[[bhd_str, real_height_for_hover]],
+                    hovertemplate=hover_template,
+                    showlegend=False,
+                    name=label,
+                )
+            )
 
-        # --- Helper: Yarder ---
+        # Helper: draw yarder
         def add_yarder_shape(x, y, h):
             base_w, base_h = 4.0, 1.2
             cab_w, cab_h = 2.5, 2.5
@@ -263,65 +283,82 @@ class ProfileChart:
 
             full_path = p_tracks + " " + p_cab + " " + p_mast
 
-            self.fig.add_shape(type="path", path=full_path, fillcolor="#333", line_color="black", line_width=1)
-            self.fig.add_annotation(x=x, y=y+h+3, text="Seilgerät", showarrow=False)
+            self.fig.add_shape(
+                type="path",
+                path=full_path,
+                fillcolor="#333",
+                line_color="black",
+                line_width=1,
+            )
+            self.fig.add_annotation(x=x, y=y + h + 3, text="Seilgerät", showarrow=False)
 
-            self.fig.add_trace(go.Scatter(
-                x=[x], y=[y + h/2],
-                mode='markers',
-                marker=dict(size=20, color='rgba(0,0,0,0)'),
-                hovertemplate=f"<b>Seilgerät</b><br>Höhe: {h:.1f} m<extra></extra>",
-                showlegend=False
-            ))
+            self.fig.add_trace(
+                go.Scatter(
+                    x=[x],
+                    y=[y + h / 2],
+                    mode="markers",
+                    marker=dict(size=20, color="rgba(0,0,0,0)"),
+                    hovertemplate=f"<b>Seilgerät</b><br>Höhe: {h:.1f} m<extra></extra>",
+                    showlegend=False,
+                )
+            )
 
-        # --- 2. Yarder ---
+        # Yarder
         yh = data["yarder"]["height"]
         max_y_candidates.append(yy + yh + 3.0)
         add_yarder_shape(yx, yy, yh)
 
-        # --- 3. Tail Tree (Endmast) ---
+        # Tail tree (endmast)
         th = data["tail_tree"]["height"]
         tail_attach_h = data["tail_tree"].get("attachment_height", th)
         dt = data["tail_tree"]
         tbhd = dt.get("BHD") or dt.get("bhd")
-        
+
         visual_trunk_h_end = tail_attach_h + 1.0
         max_y_candidates.append(ty_end + visual_trunk_h_end + 10.0 + 2.0)
-        
-        add_tree_shape(tx_end, ty_end, 
-                       visual_trunk_height=visual_trunk_h_end, 
-                       real_height_for_hover=tail_attach_h, 
-                       label="Endmast", 
-                       bhd=tbhd,
-                       crown_h=10.0, crown_w=6.0,
-                       show_height_tooltip=True)
-        
-        # --- 4. Supports ---
+
+        add_tree_shape(
+            tx_end,
+            ty_end,
+            visual_trunk_height=visual_trunk_h_end,
+            real_height_for_hover=tail_attach_h,
+            label="Endmast",
+            bhd=tbhd,
+            crown_h=10.0,
+            crown_w=6.0,
+            show_height_tooltip=True,
+        )
+
+        # Supports
         cable_points_x = [yx]
-        cable_points_y = [yy + (yh * 1.0)]
-        
+        cable_points_y = [yy + yh]
+
         for i, sup in enumerate(data["supports"]):
             sx, sy = sup["x"], sup["y_ground"]
             sh = sup.get("attachment_height", sup["height"])
             sbhd = sup.get("BHD") or sup.get("bhd")
             max_y_candidates.append(sy + (sh + 1.0) + 10.0 + 2.0)
-            
-            add_tree_shape(sx, sy, 
-                           visual_trunk_height=sh + 1.0, 
-                           real_height_for_hover=sh, 
-                           color="#228B22", 
-                           label=f"Stütze {i+1}", 
-                           bhd=sbhd,
-                           crown_h=10.0, crown_w=6.0,
-                           show_height_tooltip=True)
-            
+
+            add_tree_shape(
+                sx,
+                sy,
+                visual_trunk_height=sh + 1.0,
+                real_height_for_hover=sh,
+                color="#228B22",
+                label=f"Stütze {i + 1}",
+                bhd=sbhd,
+                crown_h=10.0,
+                crown_w=6.0,
+                show_height_tooltip=True,
+            )
+
             cable_points_x.append(sx)
             cable_points_y.append(sy + sh)
 
         cable_points_x.append(tx_end)
         cable_points_y.append(ty_end + tail_attach_h)
 
-        # --- 5. Skyline ---
+        # Skyline
         cable_x = cable_points_x
         cable_loaded_y = cable_points_y
         cable_unloaded_y = None
@@ -332,105 +369,125 @@ class ProfileChart:
 
         custom_data_skyline = [[c_id, c_len, c_cost] for _ in cable_x]
 
-        self.fig.add_trace(go.Scatter(
-            x=cable_x,
-            y=cable_loaded_y,
-            mode="lines",
-            line=dict(color="#94b48a", width=1.5, shape="spline", smoothing=0.4),
-            name="Seiltrasse belasteten zustand",
-            customdata=custom_data_skyline,
-            hovertemplate=(
-                "<b>Seiltrasse %{customdata[0]}</b><br>"
-                "Länge: %{customdata[1]:.1f} m<br>"
-                "Kosten: %{customdata[2]:.0f} €<extra></extra>"
-            ),
-            showlegend=True
-        ))
-        if has_cable_profile and cable_unloaded_y is not None:
-            self.fig.add_trace(go.Scatter(
+        self.fig.add_trace(
+            go.Scatter(
                 x=cable_x,
-                y=cable_unloaded_y,
+                y=cable_loaded_y,
                 mode="lines",
-                line=dict(color="#1f77b4", width=1.5, shape="spline", smoothing=0.4),
-                name="Seiltrasse unbelasteten zustand",
+                line=dict(color="#94b48a", width=1.5, shape="spline", smoothing=0.4),
+                name="Seiltrasse belasteten zustand",
                 customdata=custom_data_skyline,
                 hovertemplate=(
                     "<b>Seiltrasse %{customdata[0]}</b><br>"
                     "Länge: %{customdata[1]:.1f} m<br>"
                     "Kosten: %{customdata[2]:.0f} €<extra></extra>"
                 ),
-                showlegend=True
-            ))
+                showlegend=True,
+            )
+        )
+        if has_cable_profile and cable_unloaded_y is not None:
+            self.fig.add_trace(
+                go.Scatter(
+                    x=cable_x,
+                    y=cable_unloaded_y,
+                    mode="lines",
+                    line=dict(color="#1f77b4", width=1.5, shape="spline", smoothing=0.4),
+                    name="Seiltrasse unbelasteten zustand",
+                    customdata=custom_data_skyline,
+                    hovertemplate=(
+                        "<b>Seiltrasse %{customdata[0]}</b><br>"
+                        "Länge: %{customdata[1]:.1f} m<br>"
+                        "Kosten: %{customdata[2]:.0f} €<extra></extra>"
+                    ),
+                    showlegend=True,
+                )
+            )
         if len(cable_loaded_y):
             max_y_candidates.append(float(np.max(cable_loaded_y)))
         if cable_unloaded_y is not None:
             max_y_candidates.append(float(np.max(cable_unloaded_y)))
         self.fig.update_layout(showlegend=True)
 
-        # --- 6. Road Anchors ---
+        # Road anchors
         ra_label = "Ankerbaum" if ra_count == 1 else "Ankerbäume"
         dotted_color = "#7a9c74"
-        
+
         for i in range(ra_count):
-            ax = yx - 8 - (i*6)
+            ax = yx - 8 - (i * 6)
             ay = np.interp(ax, final_tx, final_ty)
             max_y_candidates.append(ay + 2.0 + 6.0 + 2.0)
-            
+
             abha = None
             if i < len(road_anchors):
                 item = road_anchors[i]
                 if isinstance(item, dict):
                     abha = item.get("BHD") or item.get("bhd")
 
-            add_tree_shape(ax, ay, 
-                           visual_trunk_height=2.0, 
-                           real_height_for_hover=0, 
-                           color="#556B2F", 
-                           label=(ra_label if i==0 else ""), 
-                           bhd=abha,
-                           crown_h=6.0, crown_w=3.0,
-                           show_height_tooltip=False)
-            
-            self.fig.add_trace(go.Scatter(
-                x=[ax, yx], y=[ay+4, yy+(yh*0.8)], 
-                mode="lines", line=dict(color=dotted_color, width=1, dash="dot"),
-                hoverinfo="skip",
-                showlegend=False
-            ))
+            add_tree_shape(
+                ax,
+                ay,
+                visual_trunk_height=2.0,
+                real_height_for_hover=0,
+                color="#556B2F",
+                label=(ra_label if i == 0 else ""),
+                bhd=abha,
+                crown_h=6.0,
+                crown_w=3.0,
+                show_height_tooltip=False,
+            )
 
-        # --- 7. Tail Anchors ---
+            self.fig.add_trace(
+                go.Scatter(
+                    x=[ax, yx],
+                    y=[ay + 4, yy + (yh * 0.8)],
+                    mode="lines",
+                    line=dict(color=dotted_color, width=1, dash="dot"),
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
+
+        # Tail anchors
         ta_label = "Ankerbaum" if ta_count == 1 else "Ankerbäume"
 
         for i in range(ta_count):
-            ax = tx_end + 8 + (i*6)
+            ax = tx_end + 8 + (i * 6)
             ay = np.interp(ax, final_tx, final_ty)
             max_y_candidates.append(ay + 2.0 + 6.0 + 2.0)
-            
+
             abha = None
             if i < len(tail_anchors):
                 item = tail_anchors[i]
                 if isinstance(item, dict):
                     abha = item.get("BHD") or item.get("bhd")
 
-            add_tree_shape(ax, ay, 
-                           visual_trunk_height=2.0, 
-                           real_height_for_hover=0, 
-                           color="#556B2F", 
-                           label=(ta_label if i==0 else ""), 
-                           bhd=abha,
-                           crown_h=6.0, crown_w=3.0,
-                           show_height_tooltip=False)
-            
-            self.fig.add_trace(go.Scatter(
-                x=[tx_end, ax], y=[ty_end+(th*0.6), ay+4], 
-                mode="lines", line=dict(color=dotted_color, width=1, dash="dot"),
-                hoverinfo="skip",
-                showlegend=False
-            ))
+            add_tree_shape(
+                ax,
+                ay,
+                visual_trunk_height=2.0,
+                real_height_for_hover=0,
+                color="#556B2F",
+                label=(ta_label if i == 0 else ""),
+                bhd=abha,
+                crown_h=6.0,
+                crown_w=3.0,
+                show_height_tooltip=False,
+            )
+
+            self.fig.add_trace(
+                go.Scatter(
+                    x=[tx_end, ax],
+                    y=[ty_end + (th * 0.6), ay + 4],
+                    mode="lines",
+                    line=dict(color=dotted_color, width=1, dash="dot"),
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
 
         max_y = max(max_y_candidates) if max_y_candidates else float(np.max(final_ty))
         y_pad = max(5.0, (max_y - min_y) * 0.05)
         self.fig.update_yaxes(range=[bottom_limit, max_y + y_pad])
 
-    def get_widget(self):
+    def get_widget(self) -> w.Widget:
         return self.container

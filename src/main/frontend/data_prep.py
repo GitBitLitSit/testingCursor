@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Tuple, Optional, Set
-from shapely.geometry import Point
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 from plotly.colors import hex_to_rgb
-from pyparsing import line
+from shapely.geometry import Point
 
 from src.main import geometry_operations
 
-# ... [Previous helper functions _scale, _convert_hex_to_rgba, _safe_float remain unchanged] ...
 def _scale(series: pd.Series, pad_low: float = 0.1) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce")
     minv, maxv = s.min(skipna=True), s.max(skipna=True)
@@ -34,6 +32,25 @@ def _safe_float(x, default=0.0) -> float:
         return float(x)
     except Exception:
         return float(default)
+
+
+def _sum_penalty(
+    distance_tree_line: np.ndarray,
+    assignment: np.ndarray,
+    threshold: float,
+    factor: float = 1.0,
+) -> int:
+    if distance_tree_line.size == 0 or len(assignment) == 0:
+        return 0
+    penalty = np.where(
+        distance_tree_line > threshold,
+        (distance_tree_line - threshold) * factor,
+        0,
+    )
+    total = 0.0
+    for row_idx, col_idx in enumerate(assignment):
+        total += penalty[row_idx][int(col_idx)]
+    return int(total)
 
 def _extract_tree_metadata(tree_obj) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
     """Return (x, y, BHD, height) for different pandas/dict representations."""
@@ -91,7 +108,6 @@ def _sample_line_xy(line, min_points: int = 20, step: float = 5.0) -> Tuple[List
     return xs, ys
 
 
-# ... [Previous coloring helpers _labels_to_plotly_colors, _tree_colors_for_indices, etc. remain unchanged] ...
 _PLOTLY = px.colors.qualitative.Plotly
 
 def _labels_to_plotly_colors(labels: List[int]) -> List[str]:
@@ -151,16 +167,60 @@ def _labels_to_real_indices(sel_real: List[int], labels: List[int]) -> List[Opti
             out.append(None)
     return out
 
-# ... [update_layout_overview, VizData, and wrappers remain unchanged] ...
+
+def _build_radar_scores(results_df: pd.DataFrame, axes: List[str]) -> pd.DataFrame:
+    df = results_df.copy()
+    eco = _scale(df["ecological_distances_RNI"])
+    ergo = _scale(df["ergonomics_distances_RNI"])
+    cost = _scale(df["cost_objective_RNI"])
+
+    scores = pd.DataFrame(
+        {
+            "Name": [f"{i + 1}" for i in df.index],
+            "Ökologische Optimierung": eco,
+            "Ergonomische Optimierung": ergo,
+            "Kosten Optimierung": cost,
+        },
+        index=df.index,
+    )
+    colors = [
+        px.colors.qualitative.Plotly[i % len(px.colors.qualitative.Plotly)]
+        for i, _ in enumerate(scores.index)
+    ]
+    scores["color"] = [_convert_hex_to_rgba(c) for c in colors]
+    scores["fill_color"] = [_convert_hex_to_rgba(c, 0.18) for c in colors]
+    scores["raw_eco"] = results_df.loc[df.index, "ecological_distances_RNI"]
+    scores["raw_ergo"] = results_df.loc[df.index, "ergonomics_distances_RNI"]
+    scores["raw_cost"] = results_df.loc[df.index, "cost_objective_RNI"]
+
+    angles = np.array([0, 2 * np.pi / 3, 4 * np.pi / 3])
+
+    def _tri_area(row: pd.Series) -> float:
+        r = np.array([row[axes[0]], row[axes[1]], row[axes[2]]], dtype=float)
+        x = r * np.cos(angles)
+        y = r * np.sin(angles)
+        return 0.5 * abs(
+            x[0] * y[1]
+            + x[1] * y[2]
+            + x[2] * y[0]
+            - y[0] * x[1]
+            - y[1] * x[2]
+            - y[2] * x[0]
+        )
+
+    scores["triangle_area"] = scores.apply(_tri_area, axis=1)
+    return scores
+
 def update_layout_overview(indices, forest_area_3, model_list, precomputed=None) -> dict:
     line_gdf = forest_area_3.line_gdf
-    full_index = line_gdf.index
-    pos_map: Dict[int, int] = {int(k): i for i, k in enumerate(full_index)}
+    pos_map: Dict[int, int] = {int(k): i for i, k in enumerate(line_gdf.index)}
+
     sel_real: List[int] = []
     for i in indices:
         ii = int(i)
         if ii in pos_map:
             sel_real.append(ii)
+
     if not sel_real:
         return {
             "Wood Volume per Cable Corridor (m3)": [],
@@ -192,6 +252,7 @@ def update_layout_overview(indices, forest_area_3, model_list, precomputed=None)
             "Road Anchor Angle of Attack": [],
             "Tail Anchor Angle of Attack": [],
         }
+
     rot_line_gdf = line_gdf.loc[sel_real]
     if precomputed is not None:
         dtl_full, dcs_full = precomputed
@@ -201,8 +262,9 @@ def update_layout_overview(indices, forest_area_3, model_list, precomputed=None)
     else:
         distance_tree_line, distance_carriage_support = geometry_operations.compute_distances_facilities_clients(
             forest_area_3.harvesteable_trees_gdf,
-            rot_line_gdf
+            rot_line_gdf,
         )
+
     try:
         tree_to_line_assignment = np.argmin(distance_tree_line, axis=1)
         distance_trees_to_selected_lines = distance_tree_line[
@@ -211,16 +273,19 @@ def update_layout_overview(indices, forest_area_3, model_list, precomputed=None)
     except Exception:
         tree_to_line_assignment = np.zeros((len(forest_area_3.harvesteable_trees_gdf),), dtype=int)
         distance_trees_to_selected_lines = np.zeros_like(tree_to_line_assignment, dtype=float)
+
     if model_list is not None and hasattr(model_list[0], "productivity_cost"):
         prod = model_list[0].productivity_cost
         sel_cols = [pos_map[i] for i in sel_real]
         selected_prod_cost = prod[:, sel_cols]
     else:
         selected_prod_cost = np.zeros((len(forest_area_3.harvesteable_trees_gdf), len(sel_real)))
-    productivity_cost_overall = 0
+
+    productivity_cost_overall = 0.0
     for index, val in enumerate(tree_to_line_assignment):
         col = min(int(val), selected_prod_cost.shape[1] - 1)
         productivity_cost_overall += selected_prod_cost[index][col]
+
     grouped_class_indices = [
         np.nonzero(tree_to_line_assignment == label)[0]
         for label in range(max(1, len(sel_real)))
@@ -234,15 +299,19 @@ def update_layout_overview(indices, forest_area_3, model_list, precomputed=None)
         round(float(sum(gtrees.iloc[g]["h"])) / len(g), 2) if len(g) else 0.0
         for g in grouped_class_indices
     ][: len(sel_real)]
+
     supports_height = [
         (
             [segment.start_support.attachment_height for segment in cr_object.supported_segments[1:]]
-            if cr_object.supported_segments else []
+            if cr_object.supported_segments
+            else []
         )
         for cr_object in rot_line_gdf["Cable Road Object"]
     ]
     supports_amount = [len(heights) for heights in supports_height]
-    max_yarding_distance_per_cr, average_yarding_distance_per_cr = [], []
+
+    max_yarding_distance_per_cr: List[int] = []
+    average_yarding_distance_per_cr: List[int] = []
     for line_idx, g in enumerate(grouped_class_indices[: len(sel_real)]):
         if len(g) == 0:
             max_yarding_distance_per_cr.append(0)
@@ -251,8 +320,12 @@ def update_layout_overview(indices, forest_area_3, model_list, precomputed=None)
             dists = distance_carriage_support[g, line_idx]
             max_yarding_distance_per_cr.append(int(max(dists)))
             average_yarding_distance_per_cr.append(int(np.mean(dists)))
-    endmast_height_list, endmast_BHD_list, endmast_max_holding_force_list = [], [], []
-    endmast_x_list, endmast_y_list = [], []
+
+    endmast_height_list: List[int] = []
+    endmast_BHD_list: List[int] = []
+    endmast_max_holding_force_list: List[int] = []
+    endmast_x_list: List[float] = []
+    endmast_y_list: List[float] = []
     for _, row in rot_line_gdf.iterrows():
         end_tree = getattr(row, "end_support_tree", getattr(row, "end_anchor_tree", None))
         end_pt = row.geometry.coords[-1]
@@ -267,82 +340,71 @@ def update_layout_overview(indices, forest_area_3, model_list, precomputed=None)
         endmast_max_holding_force_list.append(emf)
         endmast_x_list.append(round(ex, 2))
         endmast_y_list.append(round(ey, 2))
-    road_anchor_height_list, road_anchor_BHD_list = [], []
-    road_anchor_max_holding_force_list, road_anchor_x_list, road_anchor_y_list = [], [], []
-    for _, row in rot_line_gdf.iterrows():
-        ra = getattr(row, "road_anchor_tree_series", None)
+
+    def _append_road_anchor(ra) -> None:
         if isinstance(ra, dict):
             road_anchor_height_list.append(int(ra.get("h", 0)))
             road_anchor_BHD_list.append(int(ra.get("BHD", 0)))
             road_anchor_max_holding_force_list.append(int(ra.get("max_holding_force", 0)))
             road_anchor_x_list.append(round(_safe_float(ra.get("x", 0.0)), 2))
             road_anchor_y_list.append(round(_safe_float(ra.get("y", 0.0)), 2))
-            continue
+            return
         if hasattr(ra, "iterrows"):
             try:
                 first = next(ra.iterrows())[1]
+            except StopIteration:
+                first = None
+            if first is not None:
                 road_anchor_height_list.append(int(first.get("h", 0)))
                 road_anchor_BHD_list.append(int(first.get("BHD", 0)))
                 road_anchor_max_holding_force_list.append(int(first.get("max_holding_force", 0)))
                 road_anchor_x_list.append(round(_safe_float(first.get("x", 0.0)), 2))
                 road_anchor_y_list.append(round(_safe_float(first.get("y", 0.0)), 2))
-            except StopIteration:
-                road_anchor_height_list.append(0)
-                road_anchor_BHD_list.append(0)
-                road_anchor_max_holding_force_list.append(0)
-                road_anchor_x_list.append(0.0)
-                road_anchor_y_list.append(0.0)
-            continue
+                return
         road_anchor_height_list.append(0)
         road_anchor_BHD_list.append(0)
         road_anchor_max_holding_force_list.append(0)
         road_anchor_x_list.append(0.0)
         road_anchor_y_list.append(0.0)
-    if len(distance_trees_to_selected_lines) > 0:
-        max_yarding_distance = int(max(distance_trees_to_selected_lines))
+
+    road_anchor_height_list: List[int] = []
+    road_anchor_BHD_list: List[int] = []
+    road_anchor_max_holding_force_list: List[int] = []
+    road_anchor_x_list: List[float] = []
+    road_anchor_y_list: List[float] = []
+    for _, row in rot_line_gdf.iterrows():
+        _append_road_anchor(getattr(row, "road_anchor_tree_series", None))
+
+    if distance_trees_to_selected_lines.size:
+        max_yarding_distance = int(np.max(distance_trees_to_selected_lines))
         average_yarding_distance = int(np.mean(distance_trees_to_selected_lines))
     else:
         max_yarding_distance = 0
         average_yarding_distance = 0
+
     line_cost_total = int(sum(rot_line_gdf["line_cost"])) if len(rot_line_gdf) else 0
     total_cable_road_costs = int(line_cost_total + productivity_cost_overall)
     denom = max(1, sum(wood_volume_per_cr) if len(wood_volume_per_cr) else 1)
     cost_per_m3 = round(total_cable_road_costs / denom, 2)
-    if len(sel_real) > 0:
-        threshold_eco = 10
-        eco_penalty_lateral = np.where(
-            distance_tree_line > threshold_eco,
-            distance_tree_line - threshold_eco,
-            0,
-        )
-        sum_eco_distances = int(
-            sum(eco_penalty_lateral[j][i] for i, j in zip(tree_to_line_assignment, range(len(eco_penalty_lateral))))
-        )
-    else:
-        sum_eco_distances = 0
-    if len(sel_real) > 0:
-        threshold_ergo = 15
-        ergo_penalty_lateral = np.where(
-            distance_tree_line > threshold_ergo,
-            (distance_tree_line - threshold_ergo) * 2,
-            0,
-        )
-        sum_ergo_distances = int(
-            sum(ergo_penalty_lateral[j][i] for i, j in zip(tree_to_line_assignment, range(len(ergo_penalty_lateral))))
-        )
-    else:
-        sum_ergo_distances = 0
+
+    sum_eco_distances = _sum_penalty(distance_tree_line, tree_to_line_assignment, threshold=10)
+    sum_ergo_distances = _sum_penalty(
+        distance_tree_line,
+        tree_to_line_assignment,
+        threshold=15,
+        factor=2,
+    )
+
     total_len = float(sum(rot_line_gdf["line_length"])) if len(rot_line_gdf) else 0.0
     volume_per_meter = round((sum(wood_volume_per_cr) / total_len) if total_len else 0.0, 2)
+
     return {
         "Wood Volume per Cable Corridor (m3)": wood_volume_per_cr,
         "Total Cable Corridor Costs (€)": total_cable_road_costs,
         "Setup and Takedown, Prod. Costs (€)": f"{line_cost_total} / {int(productivity_cost_overall)}",
         "Ecol. Penalty": sum_eco_distances,
         "Ergon. Penalty": sum_ergo_distances,
-        "Tree to Cable Corridor Assignment": tree_to_line_assignment
-        if len(sel_real) > 0
-        else [0] * len(forest_area_3.harvesteable_trees_gdf),
+        "Tree to Cable Corridor Assignment": tree_to_line_assignment,
         "Supports Height (m)": supports_height,
         "Supports Amount": supports_amount,
         "Max lateral Yarding Distance (m)": max_yarding_distance,
@@ -382,11 +444,13 @@ class VizData:
     layout_by_model: Dict[int, Dict[str, Any]] = field(init=False)
     map: Dict[str, Any] = field(init=False)
     overview_rows: List[List[Any]] = field(init=False)
+
     def __post_init__(self):
         self._build_core()
         self._precompute_all_layouts()
         self._build_map_payload()
         self._build_overview_rows()
+
     def _build_core(self) -> None:
         valid_line_ids = set(map(int, self.forest_area_3.line_gdf.index))
         flat_ids: List[int] = []
@@ -619,48 +683,30 @@ class VizData:
                 y_vals.extend(ys_geom)
             except Exception:
                 pass
+
+        def _extend_xy_from_source(source) -> None:
+            if isinstance(source, pd.DataFrame) and not source.empty:
+                x_vals.extend(list(source["x"].astype(float)))
+                y_vals.extend(list(source["y"].astype(float)))
+            elif isinstance(source, dict) and "features" in source:
+                for feat in source["features"]:
+                    props = feat.get("properties", feat)
+                    x_vals.append(float(props.get("x", 0)))
+                    y_vals.append(float(props.get("y", 0)))
+            elif isinstance(source, dict):
+                if "x" in source and "y" in source:
+                    x_vals.append(float(source["x"]))
+                    y_vals.append(float(source["y"]))
+
         if hasattr(fa.line_gdf, "end_support_tree"):
             for tail in fa.line_gdf.end_support_tree:
-                if isinstance(tail, pd.DataFrame) and not tail.empty:
-                    x_vals.extend(list(tail["x"].astype(float)))
-                    y_vals.extend(list(tail["y"].astype(float)))
-                elif isinstance(tail, dict) and "features" in tail:
-                    for f in tail["features"]:
-                        props = f.get("properties", f)
-                        x_vals.append(float(props.get("x", 0)))
-                        y_vals.append(float(props.get("y", 0)))
-                elif isinstance(tail, dict):
-                    if "x" in tail and "y" in tail:
-                        x_vals.append(float(tail["x"]))
-                        y_vals.append(float(tail["y"]))
+                _extend_xy_from_source(tail)
         if hasattr(fa.line_gdf, "end_anchor_tree"):
             for tail in fa.line_gdf.end_anchor_tree:
-                if isinstance(tail, pd.DataFrame) and not tail.empty:
-                    x_vals.extend(list(tail["x"].astype(float)))
-                    y_vals.extend(list(tail["y"].astype(float)))
-                elif isinstance(tail, dict) and "features" in tail:
-                    for f in tail["features"]:
-                        props = f.get("properties", f)
-                        x_vals.append(float(props.get("x", 0)))
-                        y_vals.append(float(props.get("y", 0)))
-                elif isinstance(tail, dict):
-                    if "x" in tail and "y" in tail:
-                        x_vals.append(float(tail["x"]))
-                        y_vals.append(float(tail["y"]))
+                _extend_xy_from_source(tail)
         if hasattr(fa.line_gdf, "road_anchor_tree_series"):
             for ra in fa.line_gdf.road_anchor_tree_series:
-                if isinstance(ra, pd.DataFrame) and not ra.empty:
-                    x_vals.extend(list(ra["x"].astype(float)))
-                    y_vals.extend(list(ra["y"].astype(float)))
-                elif isinstance(ra, dict) and "features" in ra:
-                    for f in ra["features"]:
-                        props = f.get("properties", f)
-                        x_vals.append(float(props.get("x", 0)))
-                        y_vals.append(float(props.get("y", 0)))
-                elif isinstance(ra, dict):
-                    if "x" in ra and "y" in ra:
-                        x_vals.append(float(ra["x"]))
-                        y_vals.append(float(ra["y"]))
+                _extend_xy_from_source(ra)
         if street_anchor_x and street_anchor_y:
             x_vals.extend(street_anchor_x)
             y_vals.extend(street_anchor_y)
@@ -741,6 +787,7 @@ class VizData:
             y_range=y_range,
             indices_to_show=list(self.indices_to_show),
         )
+
     def _build_overview_rows(self) -> None:
         rows: List[List[Any]] = []
         for i, res in self.results_df.iterrows():
@@ -764,12 +811,16 @@ class VizData:
                 layout.get("Volume per Meter (m3/m)"),
             ])
         self.overview_rows = rows
+
     def selected_rows(self, selected_index: int) -> List[List[str]]:
         if selected_index < 0 or selected_index >= len(self.results_df):
             return []
         valid_line_ids = set(map(int, self.forest_area_3.line_gdf.index))
-        sel_real = [int(x) for x in self.results_df.iloc[selected_index]["selected_lines"]
-                    if int(x) in valid_line_ids]
+        sel_real = [
+            int(x)
+            for x in self.results_df.iloc[selected_index]["selected_lines"]
+            if int(x) in valid_line_ids
+        ]
         layout = self.layout_by_model[selected_index]
         vols = layout.get("Wood Volume per Cable Corridor (m3)", [])
         sup_count = layout.get("Supports Amount", [])
@@ -786,8 +837,12 @@ class VizData:
             line_length = int(subset.loc[real_idx, "line_length"]) if "line_length" in subset.columns else 0
             vol = int(vols[i]) if i < len(vols) else 0
             s_cnt = int(sup_count[i]) if i < len(sup_count) else 0
-            s_hlst = sup_heights[i] if i < len(sup_heights) and isinstance(sup_heights[i], list) else []
-            s_hstr = "/" if not s_hlst else ", ".join(str(int(h)) for h in s_hlst)
+            support_heights = (
+                sup_heights[i]
+                if i < len(sup_heights) and isinstance(sup_heights[i], list)
+                else []
+            )
+            support_heights_str = "/" if not support_heights else ", ".join(str(int(h)) for h in support_heights)
             avg_h = float(avg_tree_h[i]) if i < len(avg_tree_h) else 0.0
             max_y = int(max_yard[i]) if i < len(max_yard) else 0
             avg_y = int(avg_yard[i]) if i < len(avg_yard) else 0
@@ -797,14 +852,14 @@ class VizData:
                 str(line_length),
                 str(vol),
                 str(s_cnt),
-                s_hstr,
+                support_heights_str,
                 f"{avg_h:.2f}",
                 str(max_y),
                 str(avg_y),
             ])
         return rows
+
     def anchor_rows(self, selected_index: int) -> List[List[str]]:
-        import pandas as pd
         if selected_index < 0 or selected_index >= len(self.results_df):
             return []
         valid_line_ids = set(map(int, self.forest_area_3.line_gdf.index))
@@ -815,6 +870,19 @@ class VizData:
         fa = self.forest_area_3
         subset = fa.line_gdf.loc[fa.line_gdf.index.isin(sel_real)].loc[sel_real]
         out_rows: List[List[str]] = []
+
+        def _to_int(value):
+            try:
+                return int(value)
+            except Exception:
+                return None
+
+        def _to_coord(value):
+            try:
+                return round(float(value), 2)
+            except Exception:
+                return None
+
         for real_idx, row in subset.iterrows():
             disp_id = self.real_to_display.get(int(real_idx), int(real_idx))
             ta = getattr(row, "end_support_tree", None)
@@ -823,15 +891,15 @@ class VizData:
             bhd = h = x = y = None
             if isinstance(ta, pd.Series):
                 bhd = ta.get("BHD", None)
-                h   = ta.get("h",   None)
-                x   = ta.get("x",   None)
-                y   = ta.get("y",   None)
+                h = ta.get("h", None)
+                x = ta.get("x", None)
+                y = ta.get("y", None)
             elif isinstance(ta, pd.DataFrame) and not ta.empty:
                 first = ta.iloc[0]
                 bhd = first.get("BHD", None)
-                h   = first.get("h",   None)
-                x   = first.get("x",   None)
-                y   = first.get("y",   None)
+                h = first.get("h", None)
+                x = first.get("x", None)
+                y = first.get("y", None)
             elif isinstance(ta, dict):
                 if "features" in ta:
                     try:
@@ -839,28 +907,18 @@ class VizData:
                     except Exception:
                         props = {}
                     bhd = props.get("BHD", None)
-                    h   = props.get("h",   None)
-                    x   = props.get("x",   None)
-                    y   = props.get("y",   None)
+                    h = props.get("h", None)
+                    x = props.get("x", None)
+                    y = props.get("y", None)
                 else:
                     bhd = ta.get("BHD", None)
-                    h   = ta.get("h",   None)
-                    x   = ta.get("x",   None)
-                    y   = ta.get("y",   None)
-            def _to_int(v):
-                try:
-                    return int(v)
-                except Exception:
-                    return None
-            def _to_coord(v):
-                try:
-                    return round(float(v), 2)
-                except Exception:
-                    return None
+                    h = ta.get("h", None)
+                    x = ta.get("x", None)
+                    y = ta.get("y", None)
             bhd_val = _to_int(bhd)
-            h_val   = _to_int(h)
-            x_val   = _to_coord(x)
-            y_val   = _to_coord(y)
+            h_val = _to_int(h)
+            x_val = _to_coord(x)
+            y_val = _to_coord(y)
             out_rows.append([
                 str(disp_id),
                 "" if bhd_val is None else str(bhd_val),
@@ -870,36 +928,7 @@ class VizData:
             ])
         return out_rows
     def make_radar_scores(self, axes: List[str]) -> pd.DataFrame:
-        df = self.results_df.copy()
-        eco = _scale(df["ecological_distances_RNI"])
-        ergo = _scale(df["ergonomics_distances_RNI"])
-        cost = _scale(df["cost_objective_RNI"])
-        scores = pd.DataFrame({
-            "Name": [f"{i+1}" for i in df.index],
-            "Ökologische Optimierung": eco,
-            "Ergonomische Optimierung": ergo,
-            "Kosten Optimierung": cost,
-        }, index=df.index)
-        colors = [
-            px.colors.qualitative.Plotly[i % len(px.colors.qualitative.Plotly)]
-            for i, _ in enumerate(scores.index)
-        ]
-        scores["color"] = [_convert_hex_to_rgba(c) for c in colors]
-        scores["fill_color"] = [_convert_hex_to_rgba(c, 0.18) for c in colors]
-        scores["raw_eco"] = self.results_df.loc[df.index, "ecological_distances_RNI"]
-        scores["raw_ergo"] = self.results_df.loc[df.index, "ergonomics_distances_RNI"]
-        scores["raw_cost"] = self.results_df.loc[df.index, "cost_objective_RNI"]
-        angles = np.array([0, 2 * np.pi / 3, 4 * np.pi / 3])
-        def _tri_area(row):
-            r = np.array([row[axes[0]], row[axes[1]], row[axes[2]]], dtype=float)
-            x = r * np.cos(angles)
-            y = r * np.sin(angles)
-            return 0.5 * abs(
-                x[0] * y[1] + x[1] * y[2] + x[2] * y[0]
-                - y[0] * x[1] - y[1] * x[2] - y[2] * x[0]
-            )
-        scores["triangle_area"] = scores.apply(_tri_area, axis=1)
-        return scores
+        return _build_radar_scores(self.results_df, axes)
     def to_string(self, full: bool = False) -> str:
         def fmt_any(v) -> str:
             try:
@@ -949,8 +978,7 @@ def get_anchor_table_data(forest_area_3, model_list, results_df: pd.DataFrame, s
     return build_viz_data(forest_area_3, model_list, results_df).anchor_rows(selected_index)
 
 def make_radar_scores(results_df: pd.DataFrame, axes: List[str]) -> pd.DataFrame:
-    dummy = VizData(forest_area_3=None, model_list=None, results_df=results_df)
-    return dummy.make_radar_scores(axes)
+    return _build_radar_scores(results_df, axes)
 
 def _build_cable_profile(cr_object, line_geom) -> Dict[str, List[float]]:
     """Build loaded/unloaded cable profiles along the corridor distance."""
@@ -1035,8 +1063,9 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
     row = line_gdf.loc[corridor_real_index]
     line_geom = row.geometry
     total_length = line_geom.length
+
     def get_terrain_heights(geometry, num_samples=100):
-        if not hasattr(forest_area_3, 'height_gdf'):
+        if not hasattr(forest_area_3, "height_gdf"):
             return None, None
         dists = np.linspace(0, geometry.length, num_samples)
         sample_points = [geometry.interpolate(d) for d in dists]
@@ -1046,19 +1075,22 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
         minx, miny, maxx, maxy = geometry.bounds
         df = forest_area_3.height_gdf
         subset = df[
-            (df.x >= minx - pad) & (df.x <= maxx + pad) &
-            (df.y >= miny - pad) & (df.y <= maxy + pad)
+            (df.x >= minx - pad)
+            & (df.x <= maxx + pad)
+            & (df.y >= miny - pad)
+            & (df.y <= maxy + pad)
         ]
         if subset.empty:
             return None, None
-        ground_pts = subset[['x', 'y']].to_numpy()
-        ground_z = subset['elev'].to_numpy()
+        ground_pts = subset[["x", "y"]].to_numpy()
+        ground_z = subset["elev"].to_numpy()
         z_values = []
         for sx, sy in zip(sample_x, sample_y):
-            d = np.sqrt((ground_pts[:,0] - sx)**2 + (ground_pts[:,1] - sy)**2)
+            d = np.sqrt((ground_pts[:, 0] - sx) ** 2 + (ground_pts[:, 1] - sy) ** 2)
             idx = np.argmin(d)
             z_values.append(ground_z[idx])
         return dists, z_values
+
     terr_dists, terr_zs = get_terrain_heights(line_geom)
     if terr_zs is None:
         start_z_default = getattr(row, "start_z", 1000)
@@ -1067,28 +1099,27 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
         terr_zs = [start_z_default, end_z_default]
     start_z = terr_zs[0]
     end_z = terr_zs[-1]
-    
-    # --- Extract Cable Road Info ---
-    # Try different keys for volume/cost
+
     vol = _safe_float(row.get("wood_volume", row.get("volume_m3", row.get("volumen_m3", 0))))
     cost = _safe_float(row.get("line_cost", 0))
-    # Calculate approx gradient in %
+
     if total_length > 0:
         gradient_pct = ((end_z - start_z) / total_length) * 100
     else:
         gradient_pct = 0.0
 
     cr_object = row.get("Cable Road Object")
-    supports = []
+    supports: List[Dict[str, Any]] = []
     tree_coords = None
     tree_bhd_arr = None
     if hasattr(forest_area_3, "harvesteable_trees_gdf"):
         tgdf = forest_area_3.harvesteable_trees_gdf
         tree_coords = np.column_stack((tgdf.geometry.x, tgdf.geometry.y))
-        tree_bhd_arr = tgdf.get("BHD", pd.Series([0]*len(tgdf))).to_numpy()
+        tree_bhd_arr = tgdf.get("BHD", pd.Series([0] * len(tgdf))).to_numpy()
     if cr_object and hasattr(cr_object, "supported_segments"):
         for i, segment in enumerate(cr_object.supported_segments):
-            if i == 0: continue 
+            if i == 0:
+                continue
             sup = segment.start_support
             loc = getattr(sup, "xy_location", None)
             if loc:
@@ -1099,17 +1130,17 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
             h_attach = getattr(sup, "attachment_height", 0)
             sup_bhd = None
             if loc and tree_coords is not None:
-                dists_sq = np.sum((tree_coords - np.array([loc.x, loc.y]))**2, axis=1)
-                nearest = np.argmin(dists_sq)
+                dists_sq = np.sum((tree_coords - np.array([loc.x, loc.y])) ** 2, axis=1)
+                nearest = int(np.argmin(dists_sq))
                 if dists_sq[nearest] <= 4.0:
                     sup_bhd = float(tree_bhd_arr[nearest])
             supports.append({
-                "x": dist, 
+                "x": dist,
                 "y_ground": z_ground,
                 "height": h_attach,
                 "attachment_height": h_attach,
                 "type": "Support",
-                "BHD": sup_bhd
+                "BHD": sup_bhd,
             })
     end_tree_obj = getattr(row, "end_support_tree", getattr(row, "end_anchor_tree", None))
     _, _, tail_bhd, tail_h = _extract_tree_metadata(end_tree_obj)
@@ -1132,28 +1163,29 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
     }
     if tail_bhd is not None:
         tail_tree_data["BHD"] = tail_bhd
-    road_anchors_list = []
+
+    road_anchors_list: List[Dict[str, Any]] = []
     ra_src = getattr(row, "road_anchor_tree_series", None)
     if isinstance(ra_src, pd.DataFrame) and not ra_src.empty:
-         for _, r in ra_src.iterrows():
-             _, _, rbhd, rh = _extract_tree_metadata(r)
-             road_anchors_list.append({"BHD": rbhd, "height": rh})
+        for _, r in ra_src.iterrows():
+            _, _, rbhd, rh = _extract_tree_metadata(r)
+            road_anchors_list.append({"BHD": rbhd, "height": rh})
     elif isinstance(ra_src, dict):
-         if "features" in ra_src:
-             for feat in ra_src["features"]:
-                  props = feat.get("properties", {})
-                  _, _, rbhd, rh = _extract_tree_metadata(props)
-                  road_anchors_list.append({"BHD": rbhd, "height": rh})
-         else:
-             _, _, rbhd, rh = _extract_tree_metadata(ra_src)
-             road_anchors_list.append({"BHD": rbhd, "height": rh})
+        if "features" in ra_src:
+            for feat in ra_src["features"]:
+                props = feat.get("properties", {})
+                _, _, rbhd, rh = _extract_tree_metadata(props)
+                road_anchors_list.append({"BHD": rbhd, "height": rh})
+        else:
+            _, _, rbhd, rh = _extract_tree_metadata(ra_src)
+            road_anchors_list.append({"BHD": rbhd, "height": rh})
     elif isinstance(ra_src, pd.Series):
-         _, _, rbhd, rh = _extract_tree_metadata(ra_src)
-         road_anchors_list.append({"BHD": rbhd, "height": rh})
-    tail_anchor_count = 1 if end_tree_obj is not None else 0
+        _, _, rbhd, rh = _extract_tree_metadata(ra_src)
+        road_anchors_list.append({"BHD": rbhd, "height": rh})
+
     tail_anchor_list = []
     if tail_bhd is not None:
-         tail_anchor_list.append({"BHD": tail_bhd})
+        tail_anchor_list.append({"BHD": tail_bhd})
     final_terrain_x = list(terr_dists)
     final_terrain_y = list(terr_zs)
     for s in supports:
@@ -1165,7 +1197,7 @@ def get_side_profile_data(forest_area_3, corridor_real_index: int) -> dict:
     return {
         "terrain_x": tx,
         "terrain_y": ty,
-        "yarder": {"x": 0, "y": start_z, "height": 12}, 
+        "yarder": {"x": 0, "y": start_z, "height": 12},
         "tail_tree": tail_tree_data,
         "supports": supports,
         "road_anchors": road_anchors_list,

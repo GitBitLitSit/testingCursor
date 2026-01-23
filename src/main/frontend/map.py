@@ -1,5 +1,5 @@
-from os import truncate
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 import ipywidgets as w
 import plotly.express as px
 import plotly.graph_objects as go
@@ -52,19 +52,19 @@ class Map:
 
         # pretty title widget (outside the figure)
         self._title_html = w.HTML(
-                (
-                    "<div style='"
-                    "font-weight:800;"
-                    "text-align:left;"
-                    "margin:0 0 6px 0;"
-                    "width:100%;"
-                    "font-size:18px;"
-                    "'>"
-                    f"{title}"
-                    "</div>"
-                ),
-                layout=w.Layout(width="auto")
-            )
+            (
+                "<div style='"
+                "font-weight:800;"
+                "text-align:left;"
+                "margin:0 0 6px 0;"
+                "width:100%;"
+                "font-size:18px;"
+                "'>"
+                f"{title}"
+                "</div>"
+            ),
+            layout=w.Layout(width="auto"),
+        )
 
         # CSS helper to round the border box
         self._BORDER_RADIUS_CSS = w.HTML(

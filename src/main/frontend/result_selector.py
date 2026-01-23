@@ -1,6 +1,7 @@
 # result_selector.py
-import ipywidgets as w
 from typing import Callable, List, Optional
+
+import ipywidgets as w
 
 _THEME = {
     "card_bg": "rgb(241, 248, 241)",
@@ -40,11 +41,11 @@ _SENTINEL_NONE = -1
 
 class ResultSelector:
     def __init__(
-        self, 
-        num_results: int = 0, 
+        self,
+        num_results: int = 0,
         on_select: Optional[Callable[[Optional[int]], None]] = None,
         label: str = "Modell",
-        prefix: str = "Optimierung"
+        prefix: str = "Optimierung",
     ):
         self.num_results = num_results
         self._on_select = on_select
@@ -52,7 +53,7 @@ class ResultSelector:
         self.prefix = prefix
         self._create_widgets()
 
-    def _create_widgets(self):
+    def _create_widgets(self) -> None:
         # Initial default options
         self._results_options = self._generate_options(self.num_results)
         
@@ -60,36 +61,38 @@ class ResultSelector:
             options=self._results_options,
             value=_SENTINEL_NONE,
             disabled=False,
-            style={'description_width': 'initial'},
-            layout=w.Layout(width="300px")
+            style={"description_width": "initial"},
+            layout=w.Layout(width="300px"),
         )
         self._dropdown.add_class("widget-dropdown")
         self._dropdown.observe(self._handle_change, names="value")
 
         label_html = w.HTML(f"<span class='sort-label'><b>{self.label}:</b></span>")
-        container = w.HBox([label_html, self._dropdown], layout=w.Layout(width="300px", align_items="center", margin="0 0 10px 0"))
+        container = w.HBox(
+            [label_html, self._dropdown],
+            layout=w.Layout(width="300px", align_items="center", margin="0 0 10px 0"),
+        )
         self.widget = w.VBox([_DROPDOWN_CSS, container])
         self.widget.add_class("app-scope")
 
-    def _generate_options(self, count: int, custom_labels: List[str] = None):
+    def _generate_options(
+        self,
+        count: int,
+        custom_labels: Optional[List[str]] = None,
+    ) -> List[tuple[str, int]]:
         if custom_labels and len(custom_labels) == count:
-            # Use provided custom labels (e.g. "Seiltrasse 5", "Seiltrasse 8")
-            return [("Keine Auswahl", _SENTINEL_NONE)] + [
-                (label, i) for i, label in enumerate(custom_labels)
-            ]
+            labels = [(label, i) for i, label in enumerate(custom_labels)]
         else:
-            # Fallback to generic "Prefix X"
-            return [("Keine Auswahl", _SENTINEL_NONE)] + [
-                (f"{self.prefix} {i+1}", i) for i in range(count)
-            ]
+            labels = [(f"{self.prefix} {i + 1}", i) for i in range(count)]
+        return [("Keine Auswahl", _SENTINEL_NONE)] + labels
 
-    def _handle_change(self, change):
+    def _handle_change(self, change: dict) -> None:
         if change.get("name") == "value":
             if callable(self._on_select):
                 new_val = change["new"]
                 self._on_select(None if new_val == _SENTINEL_NONE else new_val)
 
-    def set_options(self, count: int, custom_labels: List[str] = None):
+    def set_options(self, count: int, custom_labels: Optional[List[str]] = None) -> None:
         """
         Update options dynamically.
         If custom_labels is provided, it uses those strings for the dropdown.
