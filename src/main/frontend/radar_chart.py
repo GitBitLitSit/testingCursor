@@ -348,7 +348,7 @@ def _apply_state(idx: int, active: bool, big_fig: go.FigureWidget, index_to_trac
     fill = getattr(mini, "_orig_fill", _THEME["muted_fill"]) if active else _THEME["muted_fill"]
     tcolor = _THEME["text"] if active else _THEME["muted_text"]
     bg = _THEME["card_bg"] if active else _THEME["mini_bg_inactive"]
-    border = f"2px solid {_THEME['card_border']}" if active else "2px dashed rgba(0,0,0,0.28)"
+    border = f"3px solid {_THEME['hover_border']}" if active else "2px dashed rgba(0,0,0,0.28)"
 
     with mini.batch_update():
         trace = cast(go.Scatterpolar, mini.data[0])

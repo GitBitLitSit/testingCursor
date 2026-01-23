@@ -170,7 +170,7 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
         layout=w.Layout(
             width="100%",
             align_items="flex-start",
-            margin="20px 0",
+            margin="0",
             overflow="visible",
             display="flex",
             flex_flow="row wrap",
