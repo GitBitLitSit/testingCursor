@@ -187,6 +187,11 @@ class Map:
                 self.fig.data[0].marker.color = default_colors
             else:
                 self.fig.data[0].marker.color = "green"
+            anchor_default = self.data.get("street_anchor_color_default", [])
+            if anchor_default:
+                for tr in self.fig.data:
+                    if getattr(tr, "meta", None) == "street-anchors":
+                        tr.marker.color = anchor_default
 
             # lock axes to bbox again
             self._apply_axis_ranges(pad_ratio=0.35)
@@ -280,6 +285,29 @@ class Map:
 
         # actually apply new marker colors to tree layer
         self.fig.data[0].marker.color = colors_for_trees
+
+        colors_for_anchors = None
+        if selected_index is not None:
+            anchor_by_model = self.data.get("street_anchor_colors_by_model", {})
+            colors_for_anchors = anchor_by_model.get(int(selected_index))
+
+        if colors_for_anchors is None and ordered_indices:
+            key = tuple(ordered_indices)
+            by_sel = self.data.get("street_anchor_colors_by_selection", {})
+            colors_for_anchors = by_sel.get(key)
+
+        if colors_for_anchors is None:
+            indices_to_show = self.data.get("indices_to_show", [])
+            if indices_to_show and tuple(ordered_indices) == tuple(indices_to_show):
+                colors_for_anchors = self.data.get("street_anchor_colors_by_union")
+
+        if not colors_for_anchors:
+            colors_for_anchors = self.data.get("street_anchor_color_default", [])
+
+        if colors_for_anchors:
+            for tr in self.fig.data:
+                if getattr(tr, "meta", None) == "street-anchors":
+                    tr.marker.color = colors_for_anchors
 
         # keep bbox (no extra padding because we already padded 10m in data_prep)
         self._apply_axis_ranges(pad_ratio=0.35)
@@ -382,8 +410,7 @@ class Map:
                     mode="markers",
                     marker=tree_style,
                     name="Straßen Ankerbäume",
-                    legendrank=5,
-                    legendgroup="street-anchor",
+                    legendgroup="trees",
                     customdata=street_custom,
                     hovertemplate=(
                         "Straßen Ankerbaum<br>"
@@ -393,7 +420,7 @@ class Map:
                     )
                     if street_custom
                     else "Straßen Ankerbaum<br>X: %{x:.2f}<br>Y: %{y:.2f}<extra></extra>",
-                    showlegend=True,
+                    showlegend=False,
                     meta="street-anchors",
                 )
             )

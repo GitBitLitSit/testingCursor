@@ -105,27 +105,35 @@ def _labels_to_plotly_colors(labels: List[int]) -> List[str]:
     return out
 
 
-def _tree_colors_for_indices(indices: List[int], forest_area_3, dtl_full: np.ndarray) -> List[str]:
-    num_trees = len(forest_area_3.harvesteable_trees_gdf)
+def _colors_for_dtl(
+    indices: List[int],
+    line_index,
+    dtl_full: np.ndarray,
+    num_points: int,
+) -> List[str]:
+    if num_points <= 0:
+        return []
     if not indices:
-        return ["green"] * num_trees
-    full_idx = forest_area_3.line_gdf.index
-    pos_map: Dict[int, int] = {int(k): i for i, k in enumerate(full_idx)}
-    valid_real_indices: List[int] = []
+        return ["green"] * num_points
+    pos_map: Dict[int, int] = {int(k): i for i, k in enumerate(line_index)}
     valid_cols: List[int] = []
     for ridx in indices:
         ridx_int = int(ridx)
         if ridx_int in pos_map:
-            valid_real_indices.append(ridx_int)
             valid_cols.append(pos_map[ridx_int])
     if not valid_cols:
-        return ["green"] * num_trees
+        return ["green"] * num_points
     dtl_slice = dtl_full[:, valid_cols]
     try:
         labels = np.argmin(dtl_slice, axis=1).astype(int).tolist()
     except Exception:
-        return ["green"] * num_trees
+        return ["green"] * num_points
     return _labels_to_plotly_colors(labels)
+
+
+def _tree_colors_for_indices(indices: List[int], forest_area_3, dtl_full: np.ndarray) -> List[str]:
+    num_trees = len(forest_area_3.harvesteable_trees_gdf)
+    return _colors_for_dtl(indices, forest_area_3.line_gdf.index, dtl_full, num_trees)
 
 def _labels_to_real_indices(sel_real: List[int], labels: List[int]) -> List[Optional[int]]:
     if not sel_real or labels is None:
@@ -475,6 +483,36 @@ class VizData:
                 ]
             else:
                 street_anchor_bhd_cm = [None] * len(street_anchor_x)
+        street_anchor_color_default = ["green"] * len(street_anchor_x)
+        street_anchor_colors_by_union = street_anchor_color_default
+        street_anchor_colors_by_model: Dict[int, List[str]] = {}
+        street_anchor_colors_by_selection: Dict[Tuple[int, ...], List[str]] = {}
+        anchor_dtl_full: Optional[np.ndarray] = None
+        if anchor_gdf is not None and hasattr(anchor_gdf, "geometry") and street_anchor_x:
+            try:
+                anchor_dtl_full, _ = geometry_operations.compute_distances_facilities_clients(
+                    anchor_gdf,
+                    fa.line_gdf,
+                )
+            except Exception:
+                anchor_dtl_full = None
+        if anchor_dtl_full is not None and len(street_anchor_x) == anchor_dtl_full.shape[0]:
+            street_anchor_colors_by_union = _colors_for_dtl(
+                self.indices_to_show,
+                fa.line_gdf.index,
+                anchor_dtl_full,
+                len(street_anchor_x),
+            )
+            for i, res in self.results_df.iterrows():
+                sel_real_all = [int(x) for x in res["selected_lines"]]
+                colors_i = _colors_for_dtl(
+                    sel_real_all,
+                    fa.line_gdf.index,
+                    anchor_dtl_full,
+                    len(street_anchor_x),
+                )
+                street_anchor_colors_by_model[int(i)] = colors_i
+                street_anchor_colors_by_selection[tuple(sel_real_all)] = colors_i
         volumes_by_idx = self._compute_fixed_volumes_for_map()
         corridors: Dict[int, Dict[str, Any]] = {}
         subset = fa.line_gdf.loc[idx_all] if len(idx_all) else fa.line_gdf.iloc[[]]
@@ -685,6 +723,10 @@ class VizData:
             street_anchor_x=street_anchor_x,
             street_anchor_y=street_anchor_y,
             street_anchor_bhd_cm=street_anchor_bhd_cm,
+            street_anchor_color_default=street_anchor_color_default,
+            street_anchor_colors_by_union=street_anchor_colors_by_union,
+            street_anchor_colors_by_model=street_anchor_colors_by_model,
+            street_anchor_colors_by_selection=street_anchor_colors_by_selection,
             support_tree_mask=support_tree_mask,
             support_trees_by_corridor=support_trees_by_corridor,
             tree_color_default=tree_color_default,
