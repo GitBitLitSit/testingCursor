@@ -370,16 +370,17 @@ class Map:
             else None
         )
         if street_anchor_x and street_anchor_y:
+            tree_style = dict(
+                symbol="circle",
+                size=5,
+                color=self.data.get("tree_color_default", "green"),
+            )
             fig.add_trace(
                 go.Scatter(
                     x=street_anchor_x,
                     y=street_anchor_y,
                     mode="markers",
-                    marker=dict(
-                        symbol="x",
-                        size=7,
-                        color="rgba(255, 140, 0, 0.75)",
-                    ),
+                    marker=tree_style,
                     name="Straßen Ankerbäume",
                     legendrank=5,
                     legendgroup="street-anchor",
