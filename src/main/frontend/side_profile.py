@@ -63,11 +63,18 @@ class ProfileChart:
         self.fig.update_layout(
             paper_bgcolor="rgb(241, 248, 241)", 
             plot_bgcolor="rgb(241, 248, 241)",
-            margin=dict(l=30, r=20, t=20, b=30),
+            margin=dict(l=30, r=20, t=40, b=30),
             xaxis=dict(title="Distanz (m)", showgrid=False),
             yaxis=dict(title="Höhe (m)", showgrid=True, gridcolor="#d0d0d0"),
             hovermode="closest",
-            showlegend=False,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="left",
+                x=0
+            ),
             height=450,
             width=1050, 
             autosize=False 
@@ -137,6 +144,7 @@ class ProfileChart:
 
         min_y = np.min(final_ty)
         bottom_limit = min_y - 10
+        max_y_candidates = [float(np.max(final_ty))]
 
         poly_x = np.concatenate([final_tx, [final_tx[-1], final_tx[0]]])
         poly_y = np.concatenate([final_ty, [bottom_limit, bottom_limit]])
@@ -145,14 +153,16 @@ class ProfileChart:
         self.fig.add_trace(go.Scatter(
             x=poly_x, y=poly_y, fill='toself', mode='lines',
             line=dict(width=0), fillcolor='rgba(92, 64, 51, 0.2)',
-            name='Gelände', hoverinfo='skip' 
+            name='Gelände', hoverinfo='skip',
+            showlegend=False
         ))
 
         # Trace 2: Line
         self.fig.add_trace(go.Scatter(
             x=final_tx, y=final_ty, mode='lines',
             line=dict(color='#5c4033', width=2),
-            name='Gelände Linie', hoverinfo='x+y'
+            name='Geländekante', hoverinfo='x+y',
+            showlegend=True
         ))
         self.fig.update_xaxes(range=[left_edge - pad, right_edge + pad])
 
@@ -253,6 +263,7 @@ class ProfileChart:
 
         # --- 2. Yarder ---
         yh = data["yarder"]["height"]
+        max_y_candidates.append(yy + yh + 3.0)
         add_yarder_shape(yx, yy, yh)
 
         # --- 3. Tail Tree (Endmast) ---
@@ -264,6 +275,7 @@ class ProfileChart:
         
         # Endmast: trunk = Tragseilhöhe + 1m, crown on top
         visual_trunk_h_end = tail_attach_h + 1.0
+        max_y_candidates.append(ty_end + visual_trunk_h_end + 10.0 + 2.0)
         
         add_tree_shape(tx_end, ty_end, 
                        visual_trunk_height=visual_trunk_h_end, 
@@ -281,6 +293,7 @@ class ProfileChart:
             sx, sy = sup["x"], sup["y_ground"]
             sh = sup.get("attachment_height", sup["height"])
             sbhd = sup.get("BHD") or sup.get("bhd")
+            max_y_candidates.append(sy + (sh + 1.0) + 10.0 + 2.0)
             
             # Supports: trunk = Tragseilhöhe + 1m, crown on top
             add_tree_shape(sx, sy, 
@@ -315,31 +328,35 @@ class ProfileChart:
             y=cable_loaded_y,
             mode="lines",
             line=dict(color="#94b48a", width=1.5, shape="spline", smoothing=0.4),
-            name="Tragseil (belastet)",
+            name="Seiltrasse belasteten zustand",
             customdata=custom_data_skyline,
             hovertemplate=(
                 "<b>Seiltrasse %{customdata[0]}</b><br>"
                 "Länge: %{customdata[1]:.1f} m<br>"
                 "Kosten: %{customdata[2]:.0f} €<extra></extra>"
             ),
-            showlegend=False
+            showlegend=True
         ))
         if has_cable_profile and cable_unloaded_y is not None:
             self.fig.add_trace(go.Scatter(
                 x=cable_x,
                 y=cable_unloaded_y,
                 mode="lines",
-                line=dict(color="#1f77b4", width=1.2, dash="dash", shape="spline", smoothing=0.4),
-                name="Tragseil (entspannt)",
+                line=dict(color="#1f77b4", width=1.5, shape="spline", smoothing=0.4),
+                name="Seiltrasse unbelasteten zustand",
                 customdata=custom_data_skyline,
                 hovertemplate=(
                     "<b>Seiltrasse %{customdata[0]}</b><br>"
                     "Länge: %{customdata[1]:.1f} m<br>"
                     "Kosten: %{customdata[2]:.0f} €<extra></extra>"
                 ),
-                showlegend=False
+                showlegend=True
             ))
-        self.fig.update_layout(showlegend=False)
+        if len(cable_loaded_y):
+            max_y_candidates.append(float(np.max(cable_loaded_y)))
+        if cable_unloaded_y is not None:
+            max_y_candidates.append(float(np.max(cable_unloaded_y)))
+        self.fig.update_layout(showlegend=True)
 
         # --- 6. Road Anchors (Reverted to Standard Small Tree) ---
         ra_label = "Ankerbaum" if ra_count == 1 else "Ankerbäume"
@@ -348,6 +365,7 @@ class ProfileChart:
         for i in range(ra_count):
             ax = yx - 8 - (i*6)
             ay = np.interp(ax, final_tx, final_ty)
+            max_y_candidates.append(ay + 2.0 + 6.0 + 2.0)
             
             abha = None
             if i < len(road_anchors):
@@ -368,7 +386,8 @@ class ProfileChart:
             self.fig.add_trace(go.Scatter(
                 x=[ax, yx], y=[ay+4, yy+(yh*0.8)], 
                 mode="lines", line=dict(color=dotted_color, width=1, dash="dot"),
-                hoverinfo="skip"
+                hoverinfo="skip",
+                showlegend=False
             ))
 
         # --- 7. Tail Anchors (Reverted to Standard Small Tree) ---
@@ -377,6 +396,7 @@ class ProfileChart:
         for i in range(ta_count):
             ax = tx_end + 8 + (i*6)
             ay = np.interp(ax, final_tx, final_ty)
+            max_y_candidates.append(ay + 2.0 + 6.0 + 2.0)
             
             abha = None
             if i < len(tail_anchors):
@@ -397,8 +417,13 @@ class ProfileChart:
             self.fig.add_trace(go.Scatter(
                 x=[tx_end, ax], y=[ty_end+(th*0.6), ay+4], 
                 mode="lines", line=dict(color=dotted_color, width=1, dash="dot"),
-                hoverinfo="skip"
+                hoverinfo="skip",
+                showlegend=False
             ))
+
+        max_y = max(max_y_candidates) if max_y_candidates else float(np.max(final_ty))
+        y_pad = max(5.0, (max_y - min_y) * 0.05)
+        self.fig.update_yaxes(range=[bottom_limit, max_y + y_pad])
 
     def get_widget(self):
         return self.container
