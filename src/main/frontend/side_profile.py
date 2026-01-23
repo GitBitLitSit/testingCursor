@@ -7,8 +7,8 @@ class ProfileChart:
     """
     Visualizes the Side Profile of a single Cable Corridor.
     """
-    def __init__(self):
-        self._base_width = 1050
+    def __init__(self, base_width: int = 1050):
+        self._base_width = int(base_width)
         self.fig = go.FigureWidget()
         self._setup_layout()
         self._last_data: Optional[Dict[str, Any]] = None
@@ -59,12 +59,15 @@ class ProfileChart:
         
         # 4. Main Container
         self.container = w.VBox(
-            [self._css, self._title_html, self.scroll_container], 
+            [self._css, self._title_html, self.scroll_container],
             layout=w.Layout(
-                width="100%", 
+                width="100%",
+                max_width=f"{self._base_width}px",
+                min_width="0",
                 height="auto",
                 padding="0px",
                 background_color="rgb(241, 248, 241)",
+                align_items="flex-start",
                 gap="10px"
             )
         )

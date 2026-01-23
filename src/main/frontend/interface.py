@@ -46,14 +46,17 @@ _NAMES = {
     ],
 }
 
+_SELECTED_TABLE_WIDTH = 1050
+
 
 def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VBox:
     vd = build_viz_data(forest_area_3, model_list, results_df)
 
     map_component = Map(vd.map, "Seiltrassen Karte")
     
-    profile_chart = ProfileChart()
-    profile_chart.container.layout.display = 'none'
+    selected_table_width = _SELECTED_TABLE_WIDTH
+    profile_chart = ProfileChart(base_width=selected_table_width)
+    profile_chart.container.layout.display = "none"
 
     scores = vd.make_radar_scores(_NAMES["axes"])
     radar_chart = build_radar_dashboard(
@@ -76,7 +79,7 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
     selected_table = Table(
         _NAMES["table_selected_headers"], 
         [], 
-        1050, 
+        selected_table_width,
         is_visible=False, 
         title="Aktivierte Seiltrassen",
         action_label="Auswählen", 
@@ -87,6 +90,9 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
 
     # --- Logic ---
 
+    def _set_profile_visibility(is_visible: bool) -> None:
+        profile_chart.container.layout.display = "flex" if is_visible else "none"
+
     def on_corridor_select(corridor_idx_in_list: int | None):
         """Called when a 'Seiltrasse' is selected (via Dropdown OR Table Button)."""
         
@@ -95,7 +101,7 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
         #    If called from table, this is redundant but harmless.
         if corridor_idx_in_list is None:
             selected_table.clear_highlight()
-            profile_chart.container.layout.display = 'none'
+            _set_profile_visibility(False)
             return
         else:
             selected_table.highlight_row(corridor_idx_in_list)
@@ -114,7 +120,7 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
             p_data['display_id'] = display_id
             
             profile_chart.update(p_data)
-            profile_chart.container.layout.display = 'block'
+            _set_profile_visibility(True)
 
     def on_model_select(idx: int | None):
         """Called when 'Modell' is changed."""
@@ -125,7 +131,7 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
 
         if idx is None:
             corridor_selector.set_options(0)
-            profile_chart.container.layout.display = 'none'
+            _set_profile_visibility(False)
             selected_table.clear_highlight() # Clear old selections
         else:
             real_ids = results_df.iloc[idx]["selected_lines"]
@@ -138,7 +144,7 @@ def build_interface(forest_area_3, model_list, results_df: pd.DataFrame) -> w.VB
             corridor_selector.set_options(len(real_ids), custom_labels=custom_labels)
             
             # Hide profile and clear table highlight when switching models
-            profile_chart.container.layout.display = 'none'
+            _set_profile_visibility(False)
             selected_table.clear_highlight()
 
     # --- Selectors ---
